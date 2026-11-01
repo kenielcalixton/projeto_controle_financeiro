@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Visual - Login Vanilla JS (Corrigido)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { darkbg: '#0f172a', darkcard: '#1e293b', darkborder: '#334155' } } } }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 flex items-center justify-center min-h-screen">
+    
+    <div id="app-root" class="w-full"></div>
+
+    <script type="module">
+        function renderizarLogin() {
+            const root = document.getElementById('app-root');
+            
+            root.innerHTML = `
+                <div class="min-h-screen flex items-center justify-center bg-slate-900 px-4 relative overflow-hidden w-full dark">
+                    <div class="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-600 rounded-full mix-blend-multiply filter blur-[128px] opacity-40"></div>
+                    <div class="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-emerald-600 rounded-full mix-blend-multiply filter blur-[128px] opacity-40"></div>
+                    
+                    <div class="bg-slate-800 p-8 rounded-3xl shadow-2xl w-full max-w-md border border-slate-700 z-10 animate-fade-in">
+                        <div class="text-center mb-8">
+                            <div class="w-16 h-16 bg-indigo-500/20 text-indigo-400 rounded-2xl mx-auto flex items-center justify-center text-3xl mb-4">
+                                <i class="ph-fill ph-wallet"></i>
+                            </div>
+                            <h1 class="text-2xl font-bold text-white mb-2" id="form-title">Acesse seu Painel</h1>
+                            <p class="text-slate-400 text-sm">Controle financeiro inteligente e colaborativo</p>
+                        </div>
+
+                        <form id="login-form" class="space-y-4">
+                            <div id="error-msg" class="hidden p-3 bg-rose-500/20 border border-rose-500/50 rounded-lg text-rose-400 text-sm text-center font-bold"></div>
+                            
+                            <div id="name-field" class="hidden animate-fade-in">
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nome</label>
+                                <input type="text" id="input-name" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500" placeholder="Seu nome" />
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">E-mail</label>
+                                <input type="email" id="input-email" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500" placeholder="seu@email.com" />
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Senha</label>
+                                <input type="password" id="input-password" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500" placeholder="••••••••" />
+                            </div>
+
+                            <!-- NOVO: Campo de Confirmar Senha (Escondido por padrão) -->
+                            <div id="confirm-password-field" class="hidden animate-fade-in">
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Confirmar Senha</label>
+                                <input type="password" id="input-confirm-password" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500" placeholder="••••••••" />
+                            </div>
+
+                            <button type="submit" id="btn-submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-lg shadow-indigo-500/30 mt-6 flex justify-center items-center">
+                                Entrar no Sistema
+                            </button>
+                        </form>
+
+                        <div class="mt-6 text-center text-sm text-slate-400">
+                            <span id="toggle-text">Ainda não tem conta?</span>
+                            <button id="btn-toggle-mode" type="button" class="ml-2 text-indigo-400 font-bold hover:text-indigo-300">
+                                Cadastre-se grátis
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            let isRegister = false;
+            document.getElementById('btn-toggle-mode').addEventListener('click', () => {
+                isRegister = !isRegister;
+                document.getElementById('form-title').innerText = isRegister ? 'Criar Nova Conta' : 'Acesse seu Painel';
+                document.getElementById('btn-submit').innerText = isRegister ? 'Criar Minha Conta' : 'Entrar no Sistema';
+                document.getElementById('toggle-text').innerText = isRegister ? 'Já tem uma conta?' : 'Ainda não tem conta?';
+                document.getElementById('btn-toggle-mode').innerText = isRegister ? 'Fazer Login' : 'Cadastre-se grátis';
+                
+                const nameField = document.getElementById('name-field');
+                const confirmPasswordField = document.getElementById('confirm-password-field');
+                
+                if(isRegister) {
+                    nameField.classList.remove('hidden');
+                    document.getElementById('input-name').required = true;
+                    
+                    confirmPasswordField.classList.remove('hidden');
+                    document.getElementById('input-confirm-password').required = true;
+                } else {
+                    nameField.classList.add('hidden');
+                    document.getElementById('input-name').required = false;
+                    
+                    confirmPasswordField.classList.add('hidden');
+                    document.getElementById('input-confirm-password').required = false;
+                }
+            });
+
+            document.getElementById('login-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = document.getElementById('input-email').value;
+                const password = document.getElementById('input-password').value;
+                const errorBox = document.getElementById('error-msg');
+                
+                // Limpa erros anteriores
+                errorBox.classList.add('hidden');
+                errorBox.classList.remove('text-amber-400', 'bg-amber-500/20', 'border-amber-500/50');
+                errorBox.classList.add('text-rose-400', 'bg-rose-500/20', 'border-rose-500/50');
+                
+                // Validação de senhas iguais no modo Registo
+                if (isRegister) {
+                    const confirmPassword = document.getElementById('input-confirm-password').value;
+                    if (password !== confirmPassword) {
+                        errorBox.classList.remove('hidden');
+                        errorBox.innerText = 'As senhas não coincidem!';
+                        return; // Interrompe o envio
+                    }
+                }
+                
+                // Simulação de Sucesso/Firebase
+                errorBox.classList.remove('hidden');
+                errorBox.classList.replace('text-rose-400', 'text-amber-400');
+                errorBox.classList.replace('bg-rose-500/20', 'bg-amber-500/20');
+                errorBox.classList.replace('border-rose-500/50', 'border-amber-500/50');
+                errorBox.innerText = `Simulando requisição Firebase para: ${email}...`;
+            });
+        }
+
+        renderizarLogin();
+    </script>
+</body>
+</html>
