@@ -2,6 +2,7 @@
 import { auth } from '../config/firebase.js';
 import { renderizarDashboard } from '../components/dashboard.js';
 import { renderizarLancamentos } from '../components/transactions.js';
+import { abrirModalTransacao } from '../components/transactionModal.js';
 
 export function renderizarLayout(user) {
     const root = document.getElementById('app-root');
@@ -62,7 +63,7 @@ export function renderizarLayout(user) {
                     <!-- O conteúdo das abas será injetado aqui -->
                 </main>
 
-                <button class="absolute bottom-8 right-8 w-16 h-16 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-500/40 flex items-center justify-center hover:-translate-y-1 hover:bg-indigo-500 transition-all z-40">
+                <button id="btn-add-tx" class="absolute bottom-8 right-8 w-16 h-16 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-500/40 flex items-center justify-center hover:-translate-y-1 hover:bg-indigo-500 transition-all z-40">
                     <i class="ph ph-plus text-3xl"></i>
                 </button>
             </div>
@@ -168,4 +169,9 @@ export function renderizarLayout(user) {
     // Inicializa a UI e injeta a aba do Dashboard
     updateUI();
     renderizarDashboard();
+
+    
+    document.getElementById('btn-add-tx').addEventListener('click', () => {
+        abrirModalTransacao();
+    })
 }
