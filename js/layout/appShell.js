@@ -1,6 +1,7 @@
 // js/layout/appShell.js
 import { auth } from '../config/firebase.js';
 import { renderizarDashboard } from '../components/dashboard.js';
+import { renderizarLancamentos } from '../components/transactions.js';
 
 export function renderizarLayout(user) {
     const root = document.getElementById('app-root');
@@ -23,11 +24,14 @@ export function renderizarLayout(user) {
                 </div>
                 
                 <nav class="flex-1 py-6 space-y-2 px-3 overflow-x-hidden">
-                    <button class="w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm bg-indigo-500/20 text-indigo-400 overflow-hidden">
+                    <button id="btn-nav-dashboard" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm bg-indigo-500/20 text-indigo-400 overflow-hidden">
                         <i class="ph ph-squares-four text-xl min-w-[24px]"></i>
                         <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Resumo Geral</span>
                     </button>
-                    <!-- Mais menus entrarão aqui no futuro -->
+                    <button id="btn-nav-transactions" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
+                        <i class="ph ph-list-dashes text-xl min-w-[24px]"></i>
+                        <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Lançamentos</span>
+                    </button>
                 </nav>
                 
                 <div class="p-3 border-t border-slate-700 shrink-0">
@@ -122,6 +126,44 @@ export function renderizarLayout(user) {
     document.getElementById('btn-logout').addEventListener('click', () => {
         auth.signOut();
     });
+
+    // --- Sistema de Navegação (Roteamento simples) ---
+    const btnDashboard = document.getElementById('btn-nav-dashboard');
+    const btnLancamentos = document.getElementById('btn-nav-transactions');
+    const mainContent = document.getElementById('main-content');
+
+    // Função auxiliar para mudar a cor do menu selecionado
+    function setAtivo(btnAtivo, btnInativo) {
+        btnAtivo.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm bg-indigo-500/20 text-indigo-400 overflow-hidden";
+        btnInativo.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden";
+    }
+
+    // Função auxiliar para limpar listeners do Firebase da aba anterior
+    function limparAbaAnterior() {
+        if (mainContent.dataset.unsubscribe) {
+            // Se existir um observador ativo, nós cancelamo-lo para poupar memória e leitura no banco
+            try { eval(mainContent.dataset.unsubscribe)(); } catch(e){}
+            mainContent.dataset.unsubscribe = '';
+        }
+    }
+
+    btnDashboard.addEventListener('click', () => {
+        setAtivo(btnDashboard, btnLancamentos);
+        limparAbaAnterior();
+        renderizarDashboard();
+        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } // Fecha o menu no telemóvel
+    });
+
+    btnLancamentos.addEventListener('click', () => {
+        setAtivo(btnLancamentos, btnDashboard);
+        limparAbaAnterior();
+        renderizarLancamentos();
+        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
+    });
+
+    // Inicia o UI e renderiza a aba padrão
+    updateUI();
+    renderizarDashboard();
 
     // Inicializa a UI e injeta a aba do Dashboard
     updateUI();
