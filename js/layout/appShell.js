@@ -2,6 +2,7 @@
 import { auth } from '../config/firebase.js';
 import { renderizarDashboard } from '../components/dashboard.js';
 import { renderizarLancamentos } from '../components/transactions.js';
+import { renderizarEspacos, limparListenerEspacos } from '../components/spaces.js';
 import { abrirModalTransacao } from '../components/transactionModal.js';
 
 export function renderizarLayout(user) {
@@ -32,6 +33,10 @@ export function renderizarLayout(user) {
                     <button id="btn-nav-transactions" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
                         <i class="ph ph-list-dashes text-xl min-w-[24px]"></i>
                         <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Lançamentos</span>
+                    </button>
+                    <button id="btn-nav-spaces" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
+                        <i class="ph ph-users text-xl min-w-[24px]"></i>
+                        <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Espaços & Rateios</span>
                     </button>
                 </nav>
                 
@@ -131,47 +136,53 @@ export function renderizarLayout(user) {
     // --- Sistema de Navegação (Roteamento simples) ---
     const btnDashboard = document.getElementById('btn-nav-dashboard');
     const btnLancamentos = document.getElementById('btn-nav-transactions');
+    const btnEspacos = document.getElementById('btn-nav-spaces');
     const mainContent = document.getElementById('main-content');
 
-    // Função auxiliar para mudar a cor do menu selecionado
-    function setAtivo(btnAtivo, btnInativo) {
+    function setAtivo(btnAtivo) {
+        [btnDashboard, btnLancamentos, btnEspacos].forEach(b => {
+            b.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden";
+        });
         btnAtivo.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm bg-indigo-500/20 text-indigo-400 overflow-hidden";
-        btnInativo.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden";
     }
 
-    // Função auxiliar para limpar listeners do Firebase da aba anterior
     function limparAbaAnterior() {
         if (mainContent.dataset.unsubscribe) {
-            // Se existir um observador ativo, nós cancelamo-lo para poupar memória e leitura no banco
             try { eval(mainContent.dataset.unsubscribe)(); } catch(e){}
             mainContent.dataset.unsubscribe = '';
+        }
+        if (mainContent.dataset.unsubscribeEspacos) {
+            limparListenerEspacos();
+            mainContent.dataset.unsubscribeEspacos = '';
         }
     }
 
     btnDashboard.addEventListener('click', () => {
-        setAtivo(btnDashboard, btnLancamentos);
+        setAtivo(btnDashboard);
         limparAbaAnterior();
         renderizarDashboard();
-        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } // Fecha o menu no telemóvel
+        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
     });
 
     btnLancamentos.addEventListener('click', () => {
-        setAtivo(btnLancamentos, btnDashboard);
+        setAtivo(btnLancamentos);
         limparAbaAnterior();
         renderizarLancamentos();
         if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
     });
 
-    // Inicia o UI e renderiza a aba padrão
-    updateUI();
-    renderizarDashboard();
+    btnEspacos.addEventListener('click', () => {
+        setAtivo(btnEspacos);
+        limparAbaAnterior();
+        renderizarEspacos();
+        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
+    });
+    
+    document.getElementById('btn-add-tx').addEventListener('click', () => {
+        abrirModalTransacao();
+    });
 
     // Inicializa a UI e injeta a aba do Dashboard
     updateUI();
     renderizarDashboard();
-
-    
-    document.getElementById('btn-add-tx').addEventListener('click', () => {
-        abrirModalTransacao();
-    })
 }

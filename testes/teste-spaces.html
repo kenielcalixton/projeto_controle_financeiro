@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="pt-PT" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Visual - Estados do Modal de Espaços</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { darkbg: '#0f172a', darkcard: '#1e293b', darkborder: '#334155' } } } }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+        body { font-family: 'Inter', sans-serif; overflow: hidden; }
+        .animate-fade-in { animation: fadeIn 0.2s ease-in-out; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 h-screen flex flex-col relative p-8">
+
+    <div class="flex justify-between items-center mb-8 max-w-6xl mx-auto w-full">
+        <h2 class="text-2xl font-bold">Espaços e Rateios</h2>
+        <button id="btn-new-space" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 transition-colors">
+            + Novo Espaço
+        </button>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto w-full">
+        
+        <!-- Cartão 1: Pessoal -->
+        <div class="p-6 bg-darkcard border border-darkborder rounded-3xl flex flex-col items-center text-center relative group transition-colors">
+            <div class="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-4 bg-blue-500/20 text-blue-500">👤</div>
+            <h3 class="font-bold text-xl mb-1">Pessoal</h3>
+            <p class="text-xs text-slate-400 font-bold uppercase tracking-wider">Espaço Privado</p>
+        </div>
+
+        <!-- Cartão 2: Casa (Editar) -->
+        <div class="p-6 bg-darkcard border border-darkborder rounded-3xl flex flex-col items-center text-center relative group hover:border-emerald-500/50 transition-colors">
+            <div class="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <!-- Botão de Editar -->
+                <button id="btn-edit-casa" class="text-slate-400 hover:text-emerald-400 bg-slate-800 p-2 rounded-lg z-10"><i class="ph ph-pencil-simple text-lg"></i></button>
+                <button class="text-slate-400 hover:text-rose-400 bg-slate-800 p-2 rounded-lg z-10"><i class="ph ph-trash text-lg"></i></button>
+            </div>
+            <div class="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-4 bg-emerald-500/20 text-emerald-500">🏠</div>
+            <h3 class="font-bold text-xl mb-1">Casa</h3>
+            <p class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-4">Espaço Partilhado</p>
+            <div class="flex flex-wrap justify-center gap-2">
+                <span class="text-[10px] px-2 py-1 rounded-md bg-slate-800 text-slate-300 font-bold">gabe@email.com</span>
+            </div>
+        </div>
+
+        <!-- Cartão 3: Viagem (Visualizar - Somente Leitura) -->
+        <div class="p-6 bg-darkcard border border-darkborder rounded-3xl flex flex-col items-center text-center relative group hover:border-orange-500/50 transition-colors">
+            <div class="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <!-- Botão de Visualizar -->
+                <button id="btn-view-viagem" class="text-slate-400 hover:text-indigo-400 bg-slate-800 p-2 rounded-lg z-10"><i class="ph ph-eye text-lg"></i></button>
+                <button class="text-slate-400 hover:text-rose-400 bg-slate-800 p-2 rounded-lg z-10"><i class="ph ph-sign-out text-lg"></i></button>
+            </div>
+            <div class="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-4 bg-orange-500/20 text-orange-500">✈️</div>
+            <h3 class="font-bold text-xl mb-1">Viagem Réveillon</h3>
+            <p class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2">Espaço Partilhado</p>
+            <span class="text-[10px] uppercase font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded-full border border-indigo-500/20 mb-4">De: joao@email.com</span>
+        </div>
+
+    </div>
+
+    <!-- Modal de Criação / Edição / Visualização -->
+    <div id="modal-space" class="fixed inset-0 bg-black/80 z-[105] flex items-center justify-center p-4 hidden animate-fade-in">
+        <form id="form-space" class="bg-darkcard w-full max-w-md rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col max-h-[90vh]">
+            
+            <div class="flex justify-between items-center mb-6 shrink-0">
+                <h2 id="modal-title" class="text-xl font-bold text-white">Novo Espaço</h2>
+                <button type="button" id="btn-close-modal" class="text-slate-400 hover:text-rose-500 transition-colors"><i class="ph ph-x text-2xl"></i></button>
+            </div>
+
+            <!-- Adicionado class form-inputs para bloquear tudo de uma vez -->
+            <div id="form-inputs" class="space-y-5 overflow-y-auto pr-2 flex-1">
+                
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nome do Espaço</label>
+                    <input type="text" id="input-name" required class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" placeholder="Ex: Casa, Carro, Casamento" />
+                </div>
+                
+                <label class="flex items-center bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 transition-colors" id="label-individual">
+                    <input type="checkbox" id="check-individual" class="w-5 h-5 rounded border-slate-600 bg-slate-900 text-indigo-500 mr-3 disabled:cursor-not-allowed disabled:opacity-50" />
+                    <div class="flex-1">
+                        <span class="text-sm font-bold text-slate-200 block" id="text-individual">Espaço Individual (Privado)</span>
+                        <span class="text-[10px] text-slate-400">Desmarque para adicionar convidados.</span>
+                    </div>
+                </label>
+
+                <div id="box-members" class="animate-fade-in space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                    <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Membros (E-mails)</label>
+                    <div id="members-list" class="space-y-2"></div>
+                    <button type="button" id="btn-add-member" class="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center mt-2 px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors">
+                        <i class="ph ph-plus mr-1"></i> Adicionar membro
+                    </button>
+                </div>
+
+                <div class="flex space-x-4 relative">
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Cor de Destaque</label>
+                        <input type="color" id="input-color" value="#10b981" class="w-full h-12 bg-slate-900 border border-slate-700 rounded-xl p-1 disabled:opacity-50 disabled:cursor-not-allowed" />
+                    </div>
+                    
+                    <div class="flex-1 relative">
+                        <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Ícone</label>
+                        <button type="button" id="btn-icon-toggle" class="w-full h-12 bg-slate-900 border border-slate-700 rounded-xl flex items-center justify-center text-2xl shadow-inner disabled:opacity-50 disabled:cursor-not-allowed">
+                            🏠
+                        </button>
+                        
+                        <div id="icon-selector" class="hidden absolute bottom-[60px] right-0 bg-slate-800 border border-slate-700 p-3 rounded-2xl shadow-2xl w-64 z-[110] animate-fade-in">
+                            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-2">Escolha uma categoria visual</p>
+                            <div class="grid grid-cols-5 gap-2" id="icon-grid"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-3 mt-6 pt-4 border-t border-slate-700 shrink-0">
+                <button type="button" id="btn-cancel" class="px-5 py-2.5 text-slate-400 font-bold hover:bg-slate-800 rounded-xl transition-colors">Cancelar</button>
+                <button type="submit" id="btn-save-space" class="px-5 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 shadow-lg shadow-indigo-500/30 transition-colors">Salvar Espaço</button>
+            </div>
+        </form>
+    </div>
+
+    <script type="module">
+        const modal = document.getElementById('modal-space');
+        const checkIndividual = document.getElementById('check-individual');
+        const boxMembers = document.getElementById('box-members');
+        const btnAddMember = document.getElementById('btn-add-member');
+        const membersList = document.getElementById('members-list');
+        
+        // Inputs
+        const inputName = document.getElementById('input-name');
+        const inputColor = document.getElementById('input-color');
+        const labelIndividual = document.getElementById('label-individual');
+        
+        // Elementos de Controlo Visual
+        const modalTitle = document.getElementById('modal-title');
+        const btnSave = document.getElementById('btn-save-space');
+        const btnCancel = document.getElementById('btn-cancel');
+        
+        // Ícones
+        const listaIcones = ['🏠', '🚗', '🛒', '✈️', '💼', '🎉', '🍔', '🐶', '❤️', '🎓', '🏥', '🛠️', '📱', '🎮', '⚽'];
+        let iconeSelecionado = '🏠';
+        const btnIconToggle = document.getElementById('btn-icon-toggle');
+        const iconSelector = document.getElementById('icon-selector');
+        const iconGrid = document.getElementById('icon-grid');
+
+        // Construir grid de ícones
+        listaIcones.forEach(icone => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `icon-option w-10 h-10 flex items-center justify-center text-xl rounded-xl hover:bg-slate-700 transition-all ${icone === iconeSelecionado ? 'bg-indigo-500/30 border border-indigo-500' : 'bg-transparent border border-transparent'}`;
+            btn.innerText = icone;
+            btn.addEventListener('click', () => {
+                iconeSelecionado = icone;
+                btnIconToggle.innerText = icone;
+                iconSelector.classList.add('hidden');
+                document.querySelectorAll('.icon-option').forEach(b => b.className = 'icon-option w-10 h-10 flex items-center justify-center text-xl rounded-xl hover:bg-slate-700 transition-all bg-transparent border border-transparent');
+                btn.className = 'icon-option w-10 h-10 flex items-center justify-center text-xl rounded-xl hover:bg-slate-700 transition-all bg-indigo-500/30 border border-indigo-500';
+            });
+            iconGrid.appendChild(btn);
+        });
+
+        btnIconToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if(!btnIconToggle.disabled) iconSelector.classList.toggle('hidden');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!iconSelector.contains(e.target) && !btnIconToggle.contains(e.target)) iconSelector.classList.add('hidden');
+        });
+
+        const fecharModal = () => { modal.classList.add('hidden'); iconSelector.classList.add('hidden'); };
+        document.getElementById('btn-close-modal').addEventListener('click', fecharModal);
+        document.getElementById('btn-cancel').addEventListener('click', fecharModal);
+
+        function adicionarCampoMembro(email = '', bloqueado = false) {
+            const div = document.createElement('div');
+            div.className = "flex gap-2 items-center animate-fade-in";
+            div.innerHTML = `
+                <input type="email" value="${email}" placeholder="amigo@email.com" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-2 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" ${bloqueado ? 'disabled' : ''} />
+                ${!bloqueado ? `<button type="button" class="p-2 text-rose-500 hover:bg-rose-500/20 rounded-lg transition-colors"><i class="ph ph-trash"></i></button>` : ''}
+            `;
+            if(!bloqueado) div.querySelector('button').addEventListener('click', () => div.remove());
+            membersList.appendChild(div);
+        }
+        btnAddMember.addEventListener('click', () => adicionarCampoMembro());
+
+        checkIndividual.addEventListener('change', (e) => {
+            if (e.target.checked) boxMembers.classList.add('hidden');
+            else {
+                boxMembers.classList.remove('hidden');
+                if(membersList.children.length === 0) adicionarCampoMembro();
+            }
+        });
+
+        // ==========================================
+        // O CÉREBRO DOS ESTADOS DO MODAL
+        // ==========================================
+        function abrirModal(modo, dados = null) {
+            // Limpa o formulário e a lista de membros
+            document.getElementById('form-space').reset();
+            membersList.innerHTML = '';
+            
+            if (modo === 'criar') {
+                modalTitle.innerText = 'Novo Espaço';
+                btnSave.classList.remove('hidden');
+                btnCancel.innerText = 'Cancelar';
+                inputName.disabled = false;
+                inputColor.disabled = false;
+                checkIndividual.disabled = false;
+                labelIndividual.classList.add('cursor-pointer');
+                btnAddMember.classList.remove('hidden');
+                btnIconToggle.disabled = false;
+                
+                checkIndividual.checked = true;
+                boxMembers.classList.add('hidden');
+                
+                iconeSelecionado = '🏠';
+                btnIconToggle.innerText = iconeSelecionado;
+                
+            } else if (modo === 'editar') {
+                // Modo Edição (Ex: Casa)
+                modalTitle.innerText = 'Editar Espaço';
+                btnSave.classList.remove('hidden');
+                btnCancel.innerText = 'Cancelar';
+                inputName.disabled = false;
+                inputColor.disabled = false;
+                checkIndividual.disabled = false;
+                labelIndividual.classList.add('cursor-pointer');
+                btnAddMember.classList.remove('hidden');
+                btnIconToggle.disabled = false;
+                
+                inputName.value = dados.name;
+                inputColor.value = dados.color;
+                iconeSelecionado = dados.icon;
+                btnIconToggle.innerText = iconeSelecionado;
+                
+                checkIndividual.checked = dados.isIndividual;
+                if(dados.isIndividual) {
+                    boxMembers.classList.add('hidden');
+                } else {
+                    boxMembers.classList.remove('hidden');
+                    dados.members.forEach(m => adicionarCampoMembro(m, false));
+                }
+
+            } else if (modo === 'visualizar') {
+                // Modo Visualização / Convidado (Ex: Viagem)
+                modalTitle.innerText = 'Detalhes do Espaço';
+                btnSave.classList.add('hidden'); // Esconde botão Salvar
+                btnCancel.innerText = 'Fechar'; // Muda Cancelar para Fechar
+                
+                // Bloqueia todos os inputs
+                inputName.disabled = true;
+                inputColor.disabled = true;
+                checkIndividual.disabled = true;
+                labelIndividual.classList.remove('cursor-pointer');
+                btnAddMember.classList.add('hidden');
+                btnIconToggle.disabled = true;
+                
+                inputName.value = dados.name;
+                inputColor.value = dados.color;
+                iconeSelecionado = dados.icon;
+                btnIconToggle.innerText = iconeSelecionado;
+                
+                checkIndividual.checked = dados.isIndividual;
+                boxMembers.classList.remove('hidden');
+                
+                // Adiciona os membros já bloqueados
+                dados.members.forEach(m => adicionarCampoMembro(m, true));
+            }
+            
+            modal.classList.remove('hidden');
+        }
+
+        // Ligando os botões de simulação
+        document.getElementById('btn-new-space').addEventListener('click', () => abrirModal('criar'));
+        
+        document.getElementById('btn-edit-casa').addEventListener('click', () => abrirModal('editar', {
+            name: 'Casa',
+            isIndividual: false,
+            color: '#10b981',
+            icon: '🏠',
+            members: ['gabe@email.com']
+        }));
+
+        document.getElementById('btn-view-viagem').addEventListener('click', () => abrirModal('visualizar', {
+            name: 'Viagem Réveillon',
+            isIndividual: false,
+            color: '#f97316',
+            icon: '✈️',
+            members: ['pedro@email.com', 'ana@email.com']
+        }));
+
+        document.getElementById('form-space').addEventListener('submit', (e) => {
+            e.preventDefault();
+            alert('Ação salva no Firebase!');
+            fecharModal();
+        });
+    </script>
+</body>
+</html>
