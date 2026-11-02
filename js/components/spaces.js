@@ -1,5 +1,6 @@
 // js/components/spaces.js
 import { auth, db } from '../config/firebase.js';
+import { abrirDetalheEspaco } from './spaceDetails.js';
 import { processarNotificacaoEmail } from '../services/emailService.js';
 // Adicionado o getDoc aos imports do Firestore
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -17,7 +18,7 @@ export function renderizarEspacos() {
     main.innerHTML = `
         <div class="space-y-6 animate-fade-in max-w-6xl mx-auto h-full flex flex-col">
             <div class="flex justify-between items-center">
-                <h2 class="text-xl font-bold">Espaços e Rateios</h2>
+                <h2 class="text-xl font-bold text-white">Espaços e Rateios</h2>
                 <button id="btn-new-space" class="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 transition-colors">
                     + Novo Espaço
                 </button>
@@ -43,6 +44,11 @@ export function renderizarEspacos() {
         const grid = document.getElementById('grid-spaces');
         grid.innerHTML = '';
 
+        if (espacos.length === 0) {
+            grid.innerHTML = `<div class="col-span-3 text-center text-slate-500 p-8 font-medium">Você ainda não tem nenhum espaço.</div>`;
+            return;
+        }
+
         espacos.forEach(sp => {
             const isCreator = sp.creatorEmail === user.email;
             const isPessoal = sp.name === 'Pessoal'; // Regra: O espaço Pessoal é sagrado
@@ -56,32 +62,45 @@ export function renderizarEspacos() {
                 }).join('');
             }
 
-            // Construção dos Botões de Ação do Cartão
+            // Construção dos Botões de Ação do Cartão (Canto Superior Direito)
             let botoesHTML = '';
             if (isCreator) {
-                botoesHTML = `<button class="btn-edit text-slate-400 hover:text-indigo-400 bg-slate-800 p-2 rounded-lg" data-id="${sp.id}"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>`;
+                botoesHTML = `<button class="btn-edit text-slate-400 hover:text-indigo-400 bg-slate-800 p-2 rounded-lg" data-id="${sp.id}" title="Editar Definições"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>`;
                 if (!isPessoal) {
-                    botoesHTML += `<button class="btn-delete text-slate-400 hover:text-rose-400 bg-slate-800 p-2 rounded-lg ml-2" data-id="${sp.id}"><i class="ph ph-trash text-lg pointer-events-none"></i></button>`;
+                    botoesHTML += `<button class="btn-delete text-slate-400 hover:text-rose-400 bg-slate-800 p-2 rounded-lg ml-2" data-id="${sp.id}" title="Excluir Espaço"><i class="ph ph-trash text-lg pointer-events-none"></i></button>`;
                 }
             } else {
                 botoesHTML = `
-                    <button class="btn-view text-slate-400 hover:text-indigo-400 bg-slate-800 p-2 rounded-lg" data-id="${sp.id}"><i class="ph ph-eye text-lg pointer-events-none"></i></button>
-                    <button class="btn-leave text-slate-400 hover:text-rose-400 bg-slate-800 p-2 rounded-lg ml-2" data-id="${sp.id}"><i class="ph ph-sign-out text-lg pointer-events-none"></i></button>
+                    <button class="btn-view text-slate-400 hover:text-indigo-400 bg-slate-800 p-2 rounded-lg" data-id="${sp.id}" title="Ver Definições"><i class="ph ph-eye text-lg pointer-events-none"></i></button>
+                    <button class="btn-leave text-slate-400 hover:text-rose-400 bg-slate-800 p-2 rounded-lg ml-2" data-id="${sp.id}" title="Sair do Espaço"><i class="ph ph-sign-out text-lg pointer-events-none"></i></button>
                 `;
             }
 
             const card = document.createElement('div');
-            card.className = "p-5 bg-darkcard border border-darkborder rounded-2xl flex flex-col items-center text-center relative group hover:border-indigo-500/50 transition-colors";
+            // A classe 'cursor-pointer' foi adicionada para indicar que o card todo é clicável
+            card.className = "p-5 bg-darkcard border border-darkborder rounded-2xl flex flex-col items-center text-center relative group hover:border-indigo-500/50 hover:bg-slate-800/30 transition-colors cursor-pointer";
             card.innerHTML = `
-                <div class="absolute top-3 right-3 flex opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div class="absolute top-3 right-3 flex opacity-0 group-hover:opacity-100 transition-opacity z-10 area-acoes">
                     ${botoesHTML}
                 </div>
-                <div class="w-16 h-16 rounded-full flex items-center justify-center text-3xl mb-3" style="background-color: ${sp.color}20; color: ${sp.color}">${sp.icon}</div>
-                <h3 class="font-bold text-lg mb-1">${sp.name}</h3>
-                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-2">${sp.isIndividual ? 'Espaço Privado' : 'Espaço Partilhado'}</p>
-                ${!isCreator ? `<span class="text-[10px] uppercase font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 mb-3">De: ${sp.creatorEmail}</span>` : ''}
-                ${!sp.isIndividual ? `<div class="flex flex-wrap justify-center gap-1 mt-1">${membrosHTML}</div>` : ''}
+                
+                <!-- Área Clicável para Abrir Detalhe -->
+                <div class="w-full flex flex-col items-center area-detalhe">
+                    <div class="w-16 h-16 rounded-full flex items-center justify-center text-3xl mb-3 border" style="background-color: ${sp.color}15; color: ${sp.color}; border-color: ${sp.color}30;">${sp.icon}</div>
+                    <h3 class="font-bold text-lg mb-1 text-white">${sp.name}</h3>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-2">${sp.isIndividual ? 'Espaço Privado' : 'Espaço Partilhado'}</p>
+                    ${!isCreator ? `<span class="text-[10px] uppercase font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 mb-3">De: ${sp.creatorEmail.split('@')[0]}</span>` : ''}
+                    ${!sp.isIndividual ? `<div class="flex flex-wrap justify-center gap-1 mt-1">${membrosHTML}</div>` : ''}
+                </div>
             `;
+            
+            // INTEGRAÇÃO: Clique no card abre o detalhe do Extrato!
+            card.addEventListener('click', (e) => {
+                // Se clicou dentro da área de ações (Lápis/Lixeira), IGNORA o abrir detalhe
+                if (e.target.closest('.area-acoes')) return;
+                abrirDetalheEspaco(sp);
+            });
+
             grid.appendChild(card);
         });
 
@@ -95,7 +114,7 @@ export function renderizarEspacos() {
             if(sp) abrirModalEspaco('visualizar', sp);
         }));
         document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', async (e) => {
-            if(confirm('Tem a certeza que deseja excluir este espaço?')) {
+            if(confirm('Tem a certeza que deseja excluir este espaço? (Os lançamentos dentro dele serão mantidos na sua conta individual)')) {
                 await deleteDoc(doc(db, 'spaces', e.target.dataset.id));
             }
         }));
@@ -141,7 +160,7 @@ function injetarModalEspacos() {
                     <input type="text" id="space-input-name" required class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" placeholder="Ex: Casa, Carro, Casamento" />
                 </div>
                 
-                <label id="space-label-ind" class="flex items-center bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 transition-colors cursor-pointer">
+                <label id="space-label-ind" class="flex items-center bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 transition-colors cursor-pointer hover:border-slate-500">
                     <input type="checkbox" id="space-check-ind" class="w-5 h-5 rounded border-slate-600 bg-slate-900 text-indigo-500 mr-3 disabled:cursor-not-allowed disabled:opacity-50" />
                     <div class="flex-1">
                         <span class="text-sm font-bold text-slate-200 block">Espaço Individual (Privado)</span>
@@ -149,7 +168,7 @@ function injetarModalEspacos() {
                     </div>
                 </label>
 
-                <div id="space-box-members" class="animate-fade-in space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                <div id="space-box-members" class="animate-fade-in space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 hidden">
                     <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Membros (E-mails)</label>
                     <div id="space-members-list" class="space-y-2"></div>
                     <button type="button" id="space-btn-add-member" class="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center mt-2 px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors">
@@ -297,7 +316,7 @@ function configurarEventosModal() {
                         const dadosAntigos = docSnap.data();
                         const emailsAntigos = dadosAntigos.participantEmails || [];
                         
-                        // Preservar os status antigos para quem já estava no grupo e aceitou
+                        // Preservar os status antigos
                         spaceData.membersData = participantEmails.map(email => {
                             const membroAntigo = (dadosAntigos.membersData || []).find(m => m.email === email);
                             return {
@@ -306,7 +325,6 @@ function configurarEventosModal() {
                             };
                         });
 
-                        // Filtra quem está na lista nova, mas não estava na antiga e envia e-mail APENAS a eles
                         const novosConvidados = emailsAmigos.filter(email => !emailsAntigos.includes(email));
                         novosConvidados.forEach(emailConvidado => {
                             processarNotificacaoEmail(emailConvidado, user.email, 'espaco', { nomeEspaco: spaceData.name });
@@ -343,7 +361,7 @@ function abrirModalEspaco(modo, dados = null) {
     const btnSave = document.getElementById('space-btn-save');
     const btnCancel = document.getElementById('space-btn-cancel');
 
-    // Desbloquear tudo por defeito
+    // Desbloquear tudo
     [inputName, inputColor, checkInd, btnIcon].forEach(el => el.disabled = false);
     btnSave.classList.remove('hidden');
     btnAddMember.classList.remove('hidden');
@@ -372,7 +390,7 @@ function abrirModalEspaco(modo, dados = null) {
         }
 
     } else if (modo === 'visualizar') {
-        title.innerText = 'Detalhes do Espaço';
+        title.innerText = 'Definições do Espaço';
         [inputName, inputColor, checkInd, btnIcon].forEach(el => el.disabled = true);
         btnSave.classList.add('hidden');
         btnAddMember.classList.add('hidden');

@@ -4,10 +4,11 @@ import { processarNotificacaoEmail } from '../services/emailService.js';
 import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 let isModalInjected = false;
-let modoAtual = 'criar'; 
-let txEditId = null;     
+let modoAtual = 'criar';
+let txEditId = null;
 let txEditDadosAntigos = null;
 let espacosCarregados = [];
+window.categoriasCarregadas = [];
 
 export async function abrirModalTransacao(modo = 'criar', dados = null) {
     const user = auth.currentUser;
@@ -20,13 +21,15 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
     if (!isModalInjected) {
         injetarHTMLDoModal();
         configurarEventosBase();
-        configurarEventosGestorCategorias(); // Novo gestor!
+        configurarEventosGestorCategorias();
         isModalInjected = true;
     }
 
     const form = document.getElementById('form-transaction');
     form.reset();
     document.getElementById('input-date').valueAsDate = new Date();
+    document.getElementById('select-category').value = ''; 
+    document.getElementById('custom-cat-selected').innerHTML = '<span class="text-slate-500 text-sm">A carregar...</span>';
     
     window.txState = {
         type: 'expense',
@@ -37,7 +40,7 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
     atualizarUI();
 
     const btnSubmit = document.getElementById('btn-submit-tx');
-    btnSubmit.innerText = 'A carregar os seus dados...';
+    btnSubmit.innerText = 'A carregar...';
     btnSubmit.disabled = true;
 
     try {
@@ -80,7 +83,6 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
             document.getElementById('input-amount').value = dados.amount || '';
             document.getElementById('input-date').value = dados.launchDate || '';
             if (dados.accountId) selectAcc.value = dados.accountId;
-            if (dados.category) document.getElementById('select-category').value = dados.category;
             if (dados.spaceId) {
                 selectSpace.value = dados.spaceId;
                 document.getElementById('btn-split-space').click();
@@ -92,7 +94,7 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
         btnSubmit.innerText = modo === 'editar' ? 'Atualizar Lançamento' : 'Salvar Lançamento';
         btnSubmit.disabled = false;
     } catch (e) {
-        console.error("Erro ao carregar dados:", e);
+        console.error("Erro ao carregar dados do modal:", e);
         btnSubmit.innerText = 'Erro ao carregar';
     }
 
@@ -100,12 +102,11 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
 }
 
 // ==========================================
-// GESTÃO DE CATEGORIAS (NOVO)
+// GESTÃO DE CATEGORIAS (BLINDAGEM ADICIONADA)
 // ==========================================
 async function carregarCategorias(categoriaSelecionada = null) {
     const user = auth.currentUser;
     if (!user) return;
-    const select = document.getElementById('select-category');
     
     try {
         const q = query(collection(db, 'categories'), where('userId', '==', user.uid));
@@ -114,42 +115,81 @@ async function carregarCategorias(categoriaSelecionada = null) {
         window.categoriasCarregadas = [];
         
         if (snap.empty) {
-            // Se não houver categorias, criamos com ícones e cores padrão!
             const defaultCats = [
                 { nome: 'Alimentação', icon: '🍔', color: '#f97316' },
                 { nome: 'Casa', icon: '🏠', color: '#3b82f6' },
                 { nome: 'Transporte', icon: '🚗', color: '#0ea5e9' },
                 { nome: 'Lazer', icon: '🎉', color: '#a855f7' },
                 { nome: 'Saúde', icon: '💊', color: '#ef4444' },
-                { nome: 'Salário', icon: '💰', color: '#10b981' }
+                { nome: 'Salário', icon: '💰', color: '#10b981' },
+                { nome: 'Outros', icon: '📌', color: '#64748b' }
             ];
             for (let c of defaultCats) {
                 const docRef = await addDoc(collection(db, 'categories'), { ...c, userId: user.uid });
                 window.categoriasCarregadas.push({ id: docRef.id, ...c });
             }
         } else {
-            window.categoriasCarregadas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        }
-
-        window.categoriasCarregadas.sort((a, b) => a.nome.localeCompare(b.nome));
-
-        // Atualizar o Select principal
-        if (select) {
-            select.innerHTML = '';
-            window.categoriasCarregadas.forEach(cat => {
-                const opt = document.createElement('option');
-                opt.value = cat.nome;
-                opt.innerText = `${cat.icon || '📌'} ${cat.nome}`;
-                select.appendChild(opt);
+            // SOLUÇÃO DO BUG: Tratar dados antigos sem as propriedades corretas
+            window.categoriasCarregadas = snap.docs.map(d => {
+                const data = d.data();
+                return {
+                    id: d.id,
+                    nome: data.nome || data.name || 'Sem Nome', // Fallback se não existir
+                    icon: data.icon || '📌',
+                    color: data.color || '#64748b',
+                    userId: data.userId || user.uid
+                };
             });
-            if (categoriaSelecionada) select.value = categoriaSelecionada;
         }
 
-        // Atualizar a lista dentro do Gestor de Categorias
+        // SOLUÇÃO DO BUG localeCompare: Garantir que é sempre string antes de ordenar
+        window.categoriasCarregadas.sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+
+        renderizarDropdownCustomizado(categoriaSelecionada);
         renderizarListaCategoriasNoGestor();
-        
     } catch (e) {
         console.error("Erro ao carregar categorias:", e);
+        document.getElementById('custom-cat-selected').innerHTML = '<span class="text-rose-500 text-sm">Erro ao carregar categorias</span>';
+    }
+}
+
+function renderizarDropdownCustomizado(selecionada = null) {
+    const dropdownList = document.getElementById('custom-cat-dropdown');
+    const inputHidden = document.getElementById('select-category');
+    const selectedDisplay = document.getElementById('custom-cat-selected');
+    
+    dropdownList.innerHTML = '';
+    
+    window.categoriasCarregadas.forEach(cat => {
+        const div = document.createElement('div');
+        div.className = "px-4 py-2 hover:bg-slate-700 cursor-pointer transition-colors flex items-center";
+        div.innerHTML = `
+            <span class="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center border" style="background-color: ${cat.color}15; color: ${cat.color}; border-color: ${cat.color}30;">
+                <span class="mr-1.5 text-sm">${cat.icon}</span> ${cat.nome}
+            </span>
+        `;
+        
+        div.addEventListener('click', () => {
+            inputHidden.value = cat.nome;
+            selectedDisplay.innerHTML = div.innerHTML; 
+            dropdownList.classList.add('hidden');
+        });
+        
+        dropdownList.appendChild(div);
+    });
+
+    if (selecionada) {
+        const cat = window.categoriasCarregadas.find(c => c.nome === selecionada);
+        if (cat) {
+            inputHidden.value = cat.nome;
+            selectedDisplay.innerHTML = `
+                <span class="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center border" style="background-color: ${cat.color}15; color: ${cat.color}; border-color: ${cat.color}30;">
+                    <span class="mr-1.5 text-sm">${cat.icon}</span> ${cat.nome}
+                </span>`;
+        }
+    } else if (window.categoriasCarregadas.length > 0) {
+        // Clica forçadamente no primeiro item se não houver seleção prévia
+        dropdownList.firstChild.click();
     }
 }
 
@@ -163,7 +203,7 @@ function renderizarListaCategoriasNoGestor() {
         div.className = "flex justify-between items-center bg-slate-900 border border-slate-700 p-3 rounded-xl";
         div.innerHTML = `
             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-lg" style="background-color: ${cat.color}20; color: ${cat.color};">${cat.icon || '📌'}</div>
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-lg" style="background-color: ${cat.color}20; color: ${cat.color};">${cat.icon}</div>
                 <span class="text-sm font-bold text-slate-300">${cat.nome}</span>
             </div>
             <div class="flex gap-2">
@@ -180,8 +220,8 @@ function renderizarListaCategoriasNoGestor() {
             if (cat) {
                 document.getElementById('cat-id').value = cat.id;
                 document.getElementById('cat-name').value = cat.nome;
-                document.getElementById('cat-color').value = cat.color || '#64748b';
-                window.catIconSelecionado = cat.icon || '📌';
+                document.getElementById('cat-color').value = cat.color;
+                window.catIconSelecionado = cat.icon;
                 document.getElementById('cat-btn-icon').innerText = window.catIconSelecionado;
                 document.getElementById('btn-save-cat').innerText = 'Atualizar';
             }
@@ -190,17 +230,93 @@ function renderizarListaCategoriasNoGestor() {
 
     document.querySelectorAll('.btn-del-cat').forEach(btn => {
         btn.addEventListener('click', async (e) => {
-            if(confirm('Apagar esta categoria?')) {
+            if(confirm('Tem a certeza que deseja apagar esta categoria?')) {
                 await deleteDoc(doc(db, 'categories', e.target.dataset.id));
-                await carregarCategorias();
+                await carregarCategorias(); 
             }
         });
     });
 }
 
-// ==========================================
-// FUNÇÕES AUXILIARES DE INTERFACE
-// ==========================================
+function configurarEventosGestorCategorias() {
+    const modalCat = document.getElementById('modal-category-manager');
+    const formCat = document.getElementById('form-category');
+    const iconBtn = document.getElementById('cat-btn-icon');
+    const iconSelector = document.getElementById('cat-icon-selector');
+    const iconGrid = document.getElementById('cat-icon-grid');
+
+    document.getElementById('btn-manage-categories').addEventListener('click', () => {
+        modalCat.classList.remove('hidden');
+        document.getElementById('btn-reset-cat').click(); 
+    });
+    
+    document.getElementById('btn-close-cat-manager').addEventListener('click', () => modalCat.classList.add('hidden'));
+    
+    const listaIcones = ['🍔', '🏠', '🚗', '💊', '🎉', '💰', '🐶', '✈️', '🛒', '🎓', '🏥', '🛠️', '📱', '🎮', '⚽', '💡', '🔑', '🎨', '🔥', '📌', '🐾', '💻', '☕'];
+    window.catIconSelecionado = '📌';
+    
+    listaIcones.forEach(icone => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-slate-700 transition-colors`;
+        btn.innerText = icone;
+        btn.addEventListener('click', () => {
+            window.catIconSelecionado = icone;
+            iconBtn.innerText = icone;
+            iconSelector.classList.add('hidden');
+        });
+        iconGrid.appendChild(btn);
+    });
+
+    iconBtn.addEventListener('click', (e) => { e.stopPropagation(); iconSelector.classList.toggle('hidden'); });
+    document.addEventListener('click', (e) => { if (!iconSelector.contains(e.target) && !iconBtn.contains(e.target)) iconSelector.classList.add('hidden'); });
+
+    document.getElementById('btn-reset-cat').addEventListener('click', () => {
+        document.getElementById('cat-id').value = '';
+        document.getElementById('cat-name').value = '';
+        document.getElementById('cat-color').value = '#10b981';
+        window.catIconSelecionado = '📌';
+        iconBtn.innerText = '📌';
+        document.getElementById('btn-save-cat').innerText = 'Adicionar';
+    });
+
+    formCat.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const user = auth.currentUser;
+        if(!user) return;
+
+        const id = document.getElementById('cat-id').value;
+        const nome = document.getElementById('cat-name').value.trim();
+        const color = document.getElementById('cat-color').value;
+        const icon = window.catIconSelecionado || '📌';
+        const btnSave = document.getElementById('btn-save-cat');
+        
+        btnSave.disabled = true;
+        btnSave.innerText = 'A guardar...';
+
+        try {
+            if (id) {
+                await updateDoc(doc(db, 'categories', id), { nome, color, icon });
+            } else {
+                const novoDocRef = await addDoc(collection(db, 'categories'), { nome, color, icon, userId: user.uid });
+                // Push imediato para otimizar velocidade
+                window.categoriasCarregadas.push({ id: novoDocRef.id, nome, color, icon, userId: user.uid });
+            }
+            
+            await carregarCategorias(nome);
+            document.getElementById('btn-reset-cat').click(); 
+            modalCat.classList.add('hidden'); 
+            
+        } catch(err) {
+            console.error("Erro ao salvar categoria:", err);
+            alert("Erro ao salvar a categoria.");
+        } finally {
+            btnSave.disabled = false;
+            btnSave.innerText = 'Adicionar';
+        }
+    });
+}
+
 function injetarHTMLDoModal() {
     const modalHTML = `
     <!-- MODAL PRINCIPAL DE TRANSAÇÕES -->
@@ -223,16 +339,23 @@ function injetarHTMLDoModal() {
                         <input type="text" id="input-desc" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500" placeholder="Ex: Compra do mês" />
                     </div>
                     
-                    <div class="md:col-span-6">
+                    <div class="md:col-span-5">
                         <label class="block text-xs font-bold text-slate-400 mb-1">Valor Total (R$)</label>
                         <input type="number" id="input-amount" step="0.01" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-xl font-bold text-white focus:outline-none focus:border-indigo-500" placeholder="0,00" />
                     </div>
 
-                    <div class="md:col-span-6">
+                    <div class="md:col-span-7 relative">
                         <label class="block text-xs font-bold text-slate-400 mb-1">Categoria</label>
                         <div class="flex gap-2">
-                            <select id="select-category" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-indigo-500 text-sm"></select>
-                            <button type="button" id="btn-manage-categories" title="Gerir Categorias" class="bg-slate-800 border border-slate-700 rounded-xl px-3 text-indigo-400 hover:bg-slate-700 transition-colors"><i class="ph ph-gear text-xl"></i></button>
+                            <div id="custom-cat-selector" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white cursor-pointer flex items-center justify-between hover:border-indigo-500 transition-colors h-[52px]">
+                                <div id="custom-cat-selected" class="flex items-center gap-2 overflow-hidden"><span class="text-slate-500 text-sm">A carregar...</span></div>
+                                <i class="ph ph-caret-down text-slate-400"></i>
+                            </div>
+                            <input type="hidden" id="select-category" required />
+                            <button type="button" id="btn-manage-categories" title="Gerir Categorias" class="bg-slate-800 border border-slate-700 rounded-xl px-4 text-indigo-400 hover:bg-slate-700 transition-colors shrink-0 flex items-center justify-center"><i class="ph ph-gear text-xl"></i></button>
+                        </div>
+                        
+                        <div id="custom-cat-dropdown" class="hidden absolute top-[75px] left-0 w-[calc(100%-60px)] bg-slate-800 border border-slate-600 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto py-2">
                         </div>
                     </div>
 
@@ -245,7 +368,6 @@ function injetarHTMLDoModal() {
                         </div>
                     </div>
                     
-                    <!-- Parcelas -->
                     <div id="box-installments" class="hidden md:col-span-12 grid-cols-2 gap-4 animate-fade-in bg-slate-800/30 p-4 rounded-xl border border-slate-700/50">
                         <div>
                             <label class="block text-xs font-bold text-slate-400 mb-1">Parcela Inicial</label>
@@ -308,7 +430,7 @@ function injetarHTMLDoModal() {
         </div>
     </div>
 
-    <!-- MODAL GESTOR DE CATEGORIAS (SOBREPOSTO) -->
+    <!-- MODAL GESTOR DE CATEGORIAS -->
     <div id="modal-category-manager" class="fixed inset-0 bg-black/90 z-[120] flex justify-center items-center p-4 hidden animate-fade-in">
         <div class="bg-darkcard w-full max-w-md rounded-3xl shadow-2xl border border-darkborder flex flex-col max-h-[90vh]">
             <div class="p-5 border-b border-darkborder flex justify-between items-center bg-slate-800/50 rounded-t-3xl">
@@ -317,15 +439,12 @@ function injetarHTMLDoModal() {
             </div>
             
             <div class="p-5 overflow-y-auto space-y-6">
-                <!-- Formulário de Nova/Edição -->
                 <form id="form-category" class="bg-slate-800/30 p-4 rounded-xl border border-slate-700/50 space-y-4">
                     <input type="hidden" id="cat-id" />
-                    
                     <div>
                         <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nome</label>
                         <input type="text" id="cat-name" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none" placeholder="Ex: Pets" />
                     </div>
-                    
                     <div class="flex gap-4">
                         <div class="flex-1">
                             <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Cor</label>
@@ -334,21 +453,17 @@ function injetarHTMLDoModal() {
                         <div class="flex-1 relative">
                             <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Ícone</label>
                             <button type="button" id="cat-btn-icon" class="w-full h-10 bg-slate-900 border border-slate-700 rounded-lg flex items-center justify-center text-xl hover:border-indigo-500">📌</button>
-                            
-                            <!-- Grid de Ícones Oculto -->
                             <div id="cat-icon-selector" class="hidden absolute top-12 right-0 bg-slate-800 border border-slate-700 p-2 rounded-xl shadow-xl w-[200px] z-[130]">
                                 <div class="grid grid-cols-5 gap-1" id="cat-icon-grid"></div>
                             </div>
                         </div>
                     </div>
-                    
                     <div class="flex justify-end gap-2 pt-2">
                         <button type="button" id="btn-reset-cat" class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-300">Limpar</button>
                         <button type="submit" id="btn-save-cat" class="px-4 py-1.5 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-500">Adicionar</button>
                     </div>
                 </form>
 
-                <!-- Lista de Categorias -->
                 <div>
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">As suas Categorias</h3>
                     <div id="cat-manager-list" class="space-y-2"></div>
@@ -359,87 +474,22 @@ function injetarHTMLDoModal() {
     document.body.insertAdjacentHTML('beforeend', modalHTML);
 }
 
-function configurarEventosGestorCategorias() {
-    const user = auth.currentUser;
-    const modalCat = document.getElementById('modal-category-manager');
-    const formCat = document.getElementById('form-category');
-    const iconBtn = document.getElementById('cat-btn-icon');
-    const iconSelector = document.getElementById('cat-icon-selector');
-    const iconGrid = document.getElementById('cat-icon-grid');
-
-    // Abre o Gestor
-    document.getElementById('btn-manage-categories').addEventListener('click', () => {
-        modalCat.classList.remove('hidden');
-        document.getElementById('btn-reset-cat').click(); // Limpa o form
-    });
-    
-    // Fecha o Gestor
-    document.getElementById('btn-close-cat-manager').addEventListener('click', () => modalCat.classList.add('hidden'));
-    
-    // Popular a grelha de ícones
-    const listaIcones = ['🍔', '🏠', '🚗', '💊', '🎉', '💰', '🐶', '✈️', '🛒', '🎓', '🏥', '🛠️', '📱', '🎮', '⚽', '💡', '🔑', '🎨', '🔥', '📌'];
-    window.catIconSelecionado = '📌';
-    
-    listaIcones.forEach(icone => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = `w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-slate-700 transition-colors`;
-        btn.innerText = icone;
-        btn.addEventListener('click', () => {
-            window.catIconSelecionado = icone;
-            iconBtn.innerText = icone;
-            iconSelector.classList.add('hidden');
-        });
-        iconGrid.appendChild(btn);
-    });
-
-    iconBtn.addEventListener('click', (e) => { e.stopPropagation(); iconSelector.classList.toggle('hidden'); });
-    document.addEventListener('click', (e) => { if (!iconSelector.contains(e.target) && !iconBtn.contains(e.target)) iconSelector.classList.add('hidden'); });
-
-    // Limpar Form
-    document.getElementById('btn-reset-cat').addEventListener('click', () => {
-        document.getElementById('cat-id').value = '';
-        document.getElementById('cat-name').value = '';
-        document.getElementById('cat-color').value = '#64748b';
-        window.catIconSelecionado = '📌';
-        iconBtn.innerText = '📌';
-        document.getElementById('btn-save-cat').innerText = 'Adicionar';
-    });
-
-    // Salvar/Editar Categoria
-    formCat.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const id = document.getElementById('cat-id').value;
-        const nome = document.getElementById('cat-name').value.trim();
-        const color = document.getElementById('cat-color').value;
-        const icon = window.catIconSelecionado;
-        const btnSave = document.getElementById('btn-save-cat');
-        
-        btnSave.disabled = true;
-        btnSave.innerText = 'A guardar...';
-
-        try {
-            if (id) {
-                await updateDoc(doc(db, 'categories', id), { nome, color, icon });
-            } else {
-                await addDoc(collection(db, 'categories'), { nome, color, icon, userId: user.uid });
-            }
-            document.getElementById('btn-reset-cat').click();
-            await carregarCategorias(nome); // Recarrega e seleciona a nova
-        } catch(err) {
-            console.error(err);
-        } finally {
-            btnSave.disabled = false;
-            btnSave.innerText = 'Adicionar';
-        }
-    });
-}
-
 function configurarEventosBase() {
     const user = auth.currentUser;
     document.getElementById('btn-close-modal').addEventListener('click', () => document.getElementById('modal-overlay').classList.add('hidden'));
 
-    // Eventos UI
+    const catSelectorBox = document.getElementById('custom-cat-selector');
+    const catDropdown = document.getElementById('custom-cat-dropdown');
+    catSelectorBox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        catDropdown.classList.toggle('hidden');
+    });
+    document.addEventListener('click', (e) => {
+        if (!catDropdown.contains(e.target) && !catSelectorBox.contains(e.target)) {
+            catDropdown.classList.add('hidden');
+        }
+    });
+
     document.getElementById('btn-type-expense').addEventListener('click', () => { window.txState.type = 'expense'; atualizarUI(); });
     document.getElementById('btn-type-income').addEventListener('click', () => { window.txState.type = 'income'; atualizarUI(); });
     document.getElementById('btn-rec-none').addEventListener('click', () => { window.txState.recurrence = 'none'; atualizarUI(); });
@@ -477,12 +527,16 @@ function configurarEventosBase() {
 
     document.getElementById('input-amount').addEventListener('input', calcularMatematicaBase);
 
-    // ==========================================
-    // GRAVAÇÃO NO FIREBASE (COM COR E ÍCONE)
-    // ==========================================
     document.getElementById('form-transaction').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btnSubmit = document.getElementById('btn-submit-tx');
+        
+        const catNome = document.getElementById('select-category').value;
+        if (!catNome) {
+            alert("Por favor, selecione uma categoria.");
+            return;
+        }
+
         btnSubmit.disabled = true;
         btnSubmit.innerText = modoAtual === 'editar' ? 'A atualizar...' : 'A salvar...';
 
@@ -490,9 +544,6 @@ function configurarEventosBase() {
             const accSelect = document.getElementById('select-account');
             const isCredit = accSelect.options[accSelect.selectedIndex].dataset.type === 'credit';
             const participantEmails = window.txState.participants.map(p => p.email).filter(Boolean);
-
-            // Encontrar os metadados da categoria para guardar na transação!
-            const catNome = document.getElementById('select-category').value;
             const catSelecionada = window.categoriasCarregadas.find(c => c.nome === catNome);
 
             const txData = {
@@ -502,7 +553,6 @@ function configurarEventosBase() {
                 description: document.getElementById('input-desc').value,
                 amount: parseFloat(document.getElementById('input-amount').value),
                 
-                // DESNORMALIZAÇÃO: Guarda nome, ícone e cor!
                 category: catNome, 
                 categoryIcon: catSelecionada ? catSelecionada.icon : '📌',
                 categoryColor: catSelecionada ? catSelecionada.color : '#64748b',
@@ -531,20 +581,6 @@ function configurarEventosBase() {
                             processarNotificacaoEmail(participante.email, user.email, 'rateio', { descricao: txData.description, valor: participante.amount });
                         }
                     });
-                }
-
-                if (window.txState.splitMode === 'avulso') {
-                    for (const p of window.txState.participants) {
-                        if (p.id !== 'me' && p.email) {
-                            await addDoc(collection(db, 'mail'), {
-                                to: p.email,
-                                message: {
-                                    subject: `${user.email.split('@')[0]} partilhou uma despesa consigo!`,
-                                    html: `<h2>Olá!</h2><p>A sua parte ficou em <b>R$ ${p.amount.toFixed(2)}</b>.</p>`
-                                }
-                            });
-                        }
-                    }
                 }
             } else if (modoAtual === 'editar' && txEditId) {
                 txData.createdAt = txEditDadosAntigos.createdAt;

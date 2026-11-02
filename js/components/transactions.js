@@ -5,25 +5,37 @@ import { abrirModalTransacao } from './transactionModal.js';
 
 let unsubscribeTransactions = null;
 let currentFilter = 'all'; 
+let dataReferenciaAtual = new Date(); // Estado global do mês selecionado
+
+function atualizarLabelMes() {
+    const label = document.getElementById('label-month');
+    if (label) {
+        // Formata para ex: "NOV 2026"
+        label.innerText = dataReferenciaAtual.toLocaleString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', '').toUpperCase();
+    }
+}
 
 export function renderizarLancamentos() {
     const main = document.getElementById('main-content');
     const user = auth.currentUser;
     if (!user) return;
 
-    // 1. Injeção do Esqueleto + Modal Dinâmico
+    // 1. Injeção do Esqueleto com Navegador de Meses
     main.innerHTML = `
         <div class="max-w-7xl mx-auto w-full flex flex-col h-full animate-fade-in relative">
             
             <div class="flex justify-between items-center mb-4 shrink-0">
                 <h2 class="text-2xl font-bold text-white">Lançamentos</h2>
-                <div class="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
-                    <button class="px-4 py-1.5 text-sm font-bold rounded-lg bg-slate-700 text-indigo-400 shadow transition-all">Este Mês</button>
+                <!-- SELETOR DE MESES DINÂMICO -->
+                <div class="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700 shadow-sm">
+                    <button id="btn-prev-month" class="px-3 py-1.5 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-slate-700"><i class="ph ph-caret-left text-lg"></i></button>
+                    <div id="label-month" class="px-4 py-1.5 text-sm font-bold text-indigo-400 min-w-[110px] text-center uppercase tracking-wider">A CARREGAR...</div>
+                    <button id="btn-next-month" class="px-3 py-1.5 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-slate-700"><i class="ph ph-caret-right text-lg"></i></button>
                 </div>
             </div>
 
             <!-- Filtros Rápidos -->
-            <div class="flex gap-2 mb-4 overflow-x-auto pb-2 shrink-0" id="filter-bar" style="scrollbar-width: none;">
+            <div class="flex gap-2 mb-4 overflow-x-auto pb-2 shrink-0 scrollbar-hide" id="filter-bar" style="scrollbar-width: none;">
                 <button class="filter-btn shrink-0 px-4 py-1.5 rounded-full text-xs font-bold border transition-colors bg-indigo-600 text-white border-indigo-500 shadow-md" data-filter="all">Todos</button>
                 <button class="filter-btn shrink-0 px-4 py-1.5 rounded-full text-xs font-bold border transition-colors bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700" data-filter="income">Receitas</button>
                 <button class="filter-btn shrink-0 px-4 py-1.5 rounded-full text-xs font-bold border transition-colors bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700" data-filter="expense">Despesas</button>
@@ -50,19 +62,18 @@ export function renderizarLancamentos() {
             
             <!-- MODAL DE EFETIVAÇÃO DINÂMICO -->
             <div id="modal-efetivar" class="fixed inset-0 bg-black/80 z-[110] flex items-center justify-center p-4 hidden animate-fade-in">
+                <!-- (Modal idêntico ao original mantido para a Efetivação) -->
                 <form id="form-efetivar" class="bg-darkcard w-full max-w-sm rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col">
                     <div class="flex justify-between items-center mb-4">
                         <h2 id="modal-efetivar-title" class="text-lg font-bold text-white">Confirmar</h2>
                         <button type="button" id="btn-close-efetivar" class="text-slate-400 hover:text-rose-500"><i class="ph ph-x text-xl"></i></button>
                     </div>
                     <p class="text-sm text-slate-400 mb-4" id="efetivar-desc">Confirme a data de efetivação.</p>
-                    
                     <input type="hidden" id="efetivar-id" />
                     <div>
                         <label id="efetivar-label-data" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Data</label>
                         <input type="date" id="efetivar-data" required class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500" />
                     </div>
-
                     <div class="flex justify-end space-x-3 mt-6 pt-4 border-t border-slate-700">
                         <button type="button" id="btn-cancel-efetivar" class="px-4 py-2 text-slate-400 font-bold hover:bg-slate-800 rounded-xl">Cancelar</button>
                         <button type="submit" id="btn-save-efetivar" class="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-500 transition-colors">Confirmar</button>
@@ -72,19 +83,32 @@ export function renderizarLancamentos() {
         </div>
     `;
 
-    // Eventos de Filtro
+    atualizarLabelMes();
+
+    // Lógica das Setas de Navegação de Meses
+    document.getElementById('btn-prev-month').addEventListener('click', () => {
+        dataReferenciaAtual.setMonth(dataReferenciaAtual.getMonth() - 1);
+        atualizarLabelMes();
+        if (window.lastTransactionsSnapshot) processarDadosTabela(window.lastTransactionsSnapshot);
+    });
+
+    document.getElementById('btn-next-month').addEventListener('click', () => {
+        dataReferenciaAtual.setMonth(dataReferenciaAtual.getMonth() + 1);
+        atualizarLabelMes();
+        if (window.lastTransactionsSnapshot) processarDadosTabela(window.lastTransactionsSnapshot);
+    });
+
+    // Filtros Rápidos
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.filter-btn').forEach(b => {
-                b.className = "filter-btn shrink-0 px-4 py-1.5 rounded-full text-xs font-bold border transition-colors bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700";
-            });
+            document.querySelectorAll('.filter-btn').forEach(b => b.className = "filter-btn shrink-0 px-4 py-1.5 rounded-full text-xs font-bold border transition-colors bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700");
             e.target.className = "filter-btn shrink-0 px-4 py-1.5 rounded-full text-xs font-bold border transition-colors bg-indigo-600 text-white border-indigo-500 shadow-md";
             currentFilter = e.target.dataset.filter;
             if (window.lastTransactionsSnapshot) processarDadosTabela(window.lastTransactionsSnapshot);
         });
     });
 
-    // Eventos do Modal Efetivar
+    // Modal Efetivar Eventos
     const modalEfetivar = document.getElementById('modal-efetivar');
     const fecharModalEfetivar = () => modalEfetivar.classList.add('hidden');
     document.getElementById('btn-close-efetivar').addEventListener('click', fecharModalEfetivar);
@@ -107,10 +131,7 @@ export function renderizarLancamentos() {
                 const txData = docSnap.data();
                 const myEmail = auth.currentUser.email;
 
-                // Prepara a atualização forçando a mudança no documento principal
                 let payload = { status: 'paid', paymentDate: dataPagamento };
-
-                // Se houver array de participantes (rateio ou não), garante que atualiza a NOSSA parte
                 if (txData.splitParticipants && txData.splitParticipants.length > 0) {
                     const updatedParticipants = txData.splitParticipants.map(p => {
                         if (p.email === myEmail) {
@@ -121,7 +142,7 @@ export function renderizarLancamentos() {
                     payload.splitParticipants = updatedParticipants;
                 }
                 
-                await updateDoc(docRef, payload); // Dispara a atualização dupla (Bug resolvido!)
+                await updateDoc(docRef, payload);
             }
             fecharModalEfetivar();
         } catch (error) {
@@ -133,7 +154,7 @@ export function renderizarLancamentos() {
         }
     });
 
-    // Listener de Transações
+    // Firebase Listener
     const q = query(collection(db, 'transactions'), where('participantEmails', 'array-contains', user.email));
     
     unsubscribeTransactions = onSnapshot(q, (snapshot) => {
@@ -149,21 +170,88 @@ export function limparListenerLancamentos() {
     if (unsubscribeTransactions) { unsubscribeTransactions(); unsubscribeTransactions = null; }
 }
 
+// =========================================================================
+// O MOTOR DE PROJEÇÃO: Calcula dinamicamente parcelas e meses fixos futuros
+// =========================================================================
+function projetarLancamentosDoMes(transacoes, dataRef) {
+    const anoRef = dataRef.getFullYear();
+    const mesRef = dataRef.getMonth();
+    let projetados = [];
+
+    transacoes.forEach(tx => {
+        if (!tx.launchDate) return;
+        
+        const [anoStr, mesStr, diaStr] = tx.launchDate.split('-');
+        const txAno = parseInt(anoStr, 10);
+        const txMes = parseInt(mesStr, 10) - 1; // 0-11
+
+        // Diferença em meses entre o mês selecionado no UI e a data original do lançamento
+        const mesesDiff = (anoRef - txAno) * 12 + (mesRef - txMes);
+
+        // Se for do exato mesmo mês original, renderiza normal
+        if (mesesDiff === 0) {
+            projetados.push({ ...tx, isProjection: false });
+            return;
+        }
+
+        // Se for um mês no futuro (mesesDiff > 0) e for Fixo/Parcelado
+        if (mesesDiff > 0) {
+            if (tx.recurrence === 'fixed') {
+                const clone = { ...tx };
+                clone.status = 'pending'; // No futuro, não está pago!
+                if (clone.splitParticipants) {
+                    clone.splitParticipants = clone.splitParticipants.map(p => ({...p, status: 'pending'}));
+                }
+                clone.launchDate = `${anoRef}-${String(mesRef + 1).padStart(2, '0')}-${diaStr}`;
+                clone.isProjection = true;
+                projetados.push(clone);
+            } 
+            else if (tx.recurrence === 'installments') {
+                const totalInst = parseInt(tx.installmentsTotal, 10) || 1;
+                const startInst = parseInt(tx.currentInstallment, 10) || 1;
+                
+                // Só projeta se a parcela atual + a diferença de meses ainda estiver dentro do limite de parcelas
+                if ((startInst + mesesDiff) <= totalInst) {
+                    const clone = { ...tx };
+                    clone.status = 'pending';
+                    if (clone.splitParticipants) {
+                        clone.splitParticipants = clone.splitParticipants.map(p => ({...p, status: 'pending'}));
+                    }
+                    clone.launchDate = `${anoRef}-${String(mesRef + 1).padStart(2, '0')}-${diaStr}`;
+                    clone.currentInstallment = startInst + mesesDiff;
+                    clone.isProjection = true;
+                    projetados.push(clone);
+                }
+            }
+        }
+    });
+
+    return projetados;
+}
+
 function processarDadosTabela(todasTransacoes) {
     const user = auth.currentUser;
     const containerLista = document.getElementById('lista-lancamentos');
     const cardsTotais = document.getElementById('cards-totais');
     containerLista.innerHTML = '';
 
+    // 1. Gera a lista real e projetada do mês selecionado
+    const transacoesDoMes = projetarLancamentosDoMes(todasTransacoes, dataReferenciaAtual);
+
     let recEfetivado = 0, recPrevisto = 0;
     let despEfetivado = 0, despPrevisto = 0, despVencido = 0;
-    const hoje = new Date().toISOString().split('T')[0];
+    
+    // Para verificação de vencimento, usamos a data de HOJE real
+    const hojeRealStr = new Date().toISOString().split('T')[0];
 
-    let transacoesFiltradas = todasTransacoes.filter(tx => {
+    // 2. Aplica os Filtros (Receita, Despesa) na lista do mês
+    let transacoesFiltradas = transacoesDoMes.filter(tx => {
         const myPart = tx.splitParticipants ? tx.splitParticipants.find(p => p.email === user.email) : null;
         const meuValor = myPart ? myPart.amount : tx.amount;
         const status = myPart ? myPart.status : (tx.status || 'pending');
-        const isVencido = (tx.launchDate < hoje && status !== 'paid' && status !== 'accepted');
+        
+        // Verifica se está vencido (Data anterior a hoje real, não pago, e não é projeção futura)
+        const isVencido = (!tx.isProjection && tx.launchDate < hojeRealStr && status !== 'paid' && status !== 'accepted');
 
         if (tx.type === 'income') {
             recPrevisto += meuValor;
@@ -182,8 +270,9 @@ function processarDadosTabela(todasTransacoes) {
 
     transacoesFiltradas.sort((a, b) => new Date(b.launchDate) - new Date(a.launchDate));
 
+    // 3. Renderiza a Interface
     if (transacoesFiltradas.length === 0) {
-        containerLista.innerHTML = `<div class="text-center p-8 text-slate-500 font-medium">Nenhum lançamento encontrado.</div>`;
+        containerLista.innerHTML = `<div class="text-center p-8 text-slate-500 font-medium">Nenhum lançamento para este mês.</div>`;
     } else {
         transacoesFiltradas.forEach(tx => {
             const myPart = tx.splitParticipants ? tx.splitParticipants.find(p => p.email === user.email) : null;
@@ -195,39 +284,54 @@ function processarDadosTabela(todasTransacoes) {
             const corValor = isIncome ? 'text-emerald-500' : 'text-rose-500';
             
             let status = myPart ? myPart.status : (tx.status || 'pending');
-            let isVencido = (tx.launchDate < hoje && status !== 'paid' && status !== 'accepted');
+            let isVencido = (!tx.isProjection && tx.launchDate < hojeRealStr && status !== 'paid' && status !== 'accepted');
             
             let statusBadge = '';
             let cardClass = '';
 
-            if (status === 'paid' || status === 'accepted') {
+            // Renderização Condicional da Badge
+            if (tx.isProjection) {
+                // É uma previsão futura, não pode ser paga ainda
+                statusBadge = `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 flex items-center w-max border border-indigo-500/20"><i class="ph-fill ph-calendar-blank mr-1"></i> Projetado</span>`;
+                cardClass = 'opacity-80 border-dashed border-darkborder';
+            } else if (status === 'paid' || status === 'accepted') {
                 statusBadge = `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 flex items-center w-max"><i class="ph-fill ph-check-circle mr-1"></i> Efetivado</span>`;
-                cardClass = 'opacity-70 hover:opacity-100';
+                cardClass = 'opacity-70 hover:opacity-100 border-solid';
             } else if (isVencido) {
                 statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 flex items-center w-max hover:bg-rose-500 hover:text-white transition-colors cursor-pointer border border-rose-500/30" data-id="${tx.id}"><i class="ph-fill ph-warning-circle mr-1"></i> Vencido (Efetivar)</button>`;
-                cardClass = 'bg-rose-500/5 hover:bg-rose-500/10';
+                cardClass = 'bg-rose-500/5 hover:bg-rose-500/10 border-solid';
             } else {
                 statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-500 flex items-center w-max hover:bg-amber-500 hover:text-white transition-colors cursor-pointer border border-amber-500/30" data-id="${tx.id}"><i class="ph-fill ph-clock mr-1"></i> Pendente (Efetivar)</button>`;
+                cardClass = 'border-solid';
             }
 
             let tagsDescricao = '';
             if (tx.splitParticipants && tx.splitParticipants.length > 1) tagsDescricao += `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/20 text-indigo-400 uppercase border border-indigo-500/20 mt-1 sm:mt-0">Rateio</span> `;
-            if (tx.installments > 1) tagsDescricao += `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-700 text-slate-300 uppercase border border-slate-600 mt-1 sm:mt-0">${tx.currentInstallment}/${tx.installments}</span>`;
+            if (tx.installmentsTotal > 1) tagsDescricao += `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-700 text-slate-300 uppercase border border-slate-600 mt-1 sm:mt-0">${tx.currentInstallment}/${tx.installmentsTotal}</span>`;
+            if (tx.recurrence === 'fixed') tagsDescricao += `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-700 text-slate-300 uppercase border border-slate-600 mt-1 sm:mt-0"><i class="ph ph-arrows-clockwise"></i> Fixo</span>`;
 
             let metaHTML = `<span class="flex items-center gap-1"><i class="ph-fill ph-bank text-slate-400"></i> Conta Padrão</span>`;
             if (tx.spaceId) metaHTML += `<span class="text-slate-700 hidden sm:inline">•</span><span class="flex items-center gap-1 text-indigo-400/70"><i class="ph-fill ph-users"></i> Espaço</span>`;
 
             const catNome = tx.category || 'Outros';
             const catIcon = tx.categoryIcon || '📌';
-            const catColor = tx.categoryColor || '#64748b'; // Cinza se for antigo
+            const catColor = tx.categoryColor || '#64748b'; 
             
+            // Botões de Ação (Esconde na projeção, pois a edição deve ser feita no mês de origem)
+            const acoesHTML = tx.isProjection 
+                ? `<span class="text-[10px] text-slate-500 font-bold uppercase" title="Edite o registo no seu mês de origem">Apenas Leitura</span>`
+                : `<button class="btn-edit text-slate-500 hover:text-indigo-400" data-id="${tx.id}"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
+                   <button class="btn-delete text-slate-500 hover:text-rose-400" data-id="${tx.id}"><i class="ph ph-trash text-lg pointer-events-none"></i></button>`;
+
             containerLista.innerHTML += `
                 <div class="flex flex-col md:grid md:grid-cols-12 md:gap-4 md:items-center p-4 border-b border-darkborder hover:bg-slate-800/50 transition-colors group ${cardClass}">
                     <div class="flex justify-between items-start md:items-center mb-3 md:mb-0 md:col-span-2">
                         ${statusBadge}
                         <div class="flex space-x-3 md:hidden">
-                            <button class="btn-edit text-slate-500 hover:text-indigo-400 bg-slate-800 p-1.5 rounded-lg" data-id="${tx.id}"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
-                            <button class="btn-delete text-slate-500 hover:text-rose-400 bg-slate-800 p-1.5 rounded-lg" data-id="${tx.id}"><i class="ph ph-trash text-lg pointer-events-none"></i></button>
+                            ${!tx.isProjection ? `
+                                <button class="btn-edit text-slate-500 hover:text-indigo-400 bg-slate-800 p-1.5 rounded-lg" data-id="${tx.id}"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
+                                <button class="btn-delete text-slate-500 hover:text-rose-400 bg-slate-800 p-1.5 rounded-lg" data-id="${tx.id}"><i class="ph ph-trash text-lg pointer-events-none"></i></button>
+                            ` : `<i class="ph ph-lock-key text-slate-600 bg-slate-800 p-1.5 rounded-lg"></i>`}
                         </div>
                     </div>
                     <div class="text-[11px] md:text-sm text-slate-400 md:text-slate-300 mb-2 md:mb-0 md:col-span-2">
@@ -240,8 +344,6 @@ function processarDadosTabela(todasTransacoes) {
                         </div>
                         <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">${metaHTML}</div>
                     </div>
-                    
-                    <!-- MAGIA DAS CORES AQUI -->
                     <div class="flex justify-between items-end md:contents">
                         <div class="md:col-span-2">
                             <span class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold flex items-center w-max border" style="background-color: ${catColor}15; color: ${catColor}; border-color: ${catColor}30;">
@@ -253,23 +355,21 @@ function processarDadosTabela(todasTransacoes) {
                             ${(tx.splitParticipants && tx.splitParticipants.length > 1) ? `<p class="text-[10px] text-slate-500 font-medium mt-1">Total: R$ ${totalOriginal.toFixed(2)}</p>` : ''}
                         </div>
                     </div>
-                    
-                    <div class="hidden md:flex justify-end space-x-2 md:col-span-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button class="btn-edit text-slate-500 hover:text-indigo-400" data-id="${tx.id}"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
-                        <button class="btn-delete text-slate-500 hover:text-rose-400" data-id="${tx.id}"><i class="ph ph-trash text-lg pointer-events-none"></i></button>
+                    <div class="hidden md:flex justify-end items-center space-x-3 md:col-span-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        ${acoesHTML}
                     </div>
                 </div>
             `;
         });
     }
 
-    // A MÁGICA: Modal Inteligente que sabe se é Receita ou Despesa
+    // Associar Eventos de Efetivar, Editar e Excluir (apenas para não-projetados)
     document.querySelectorAll('.btn-quick-efetivar').forEach(btn => btn.addEventListener('click', (e) => {
         const id = e.currentTarget.dataset.id;
         const tx = todasTransacoes.find(t => t.id === id);
         
         document.getElementById('efetivar-id').value = id;
-        document.getElementById('efetivar-data').value = hoje; 
+        document.getElementById('efetivar-data').value = hojeRealStr; 
         
         const modalTitle = document.getElementById('modal-efetivar-title');
         const modalDesc = document.getElementById('efetivar-desc');
@@ -298,16 +398,16 @@ function processarDadosTabela(todasTransacoes) {
     }));
 
     document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', async (e) => {
-        if(confirm('Tem a certeza que deseja excluir este lançamento?')) {
+        if(confirm('Tem a certeza que deseja excluir este lançamento e todas as suas projeções futuras?')) {
             await deleteDoc(doc(db, 'transactions', e.currentTarget.dataset.id)); 
         }
     }));
 
+    // 4. Atualiza os Totalizadores baseados APENAS no mês selecionado
     const saldoAtual = recEfetivado - despEfetivado;
     const saldoProjetado = recPrevisto - despPrevisto;
 
     cardsTotais.innerHTML = `
-        <!-- ... Totalizadores (O HTML mantém-se inalterado) ... -->
         <div class="bg-darkcard border border-darkborder p-5 rounded-2xl flex flex-col justify-between shadow-sm">
             <div class="flex justify-between items-start mb-3">
                 <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Receitas</p>

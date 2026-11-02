@@ -68,11 +68,6 @@ export function renderizarLayout(user) {
                         Olá, ${user.email.split('@')[0]} 👋
                     </h1>
                     
-                    <div class="flex items-center bg-slate-900 rounded-full p-1 border border-slate-700 shadow-inner">
-                        <button class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"><i class="ph ph-caret-left"></i></button>
-                        <span class="px-4 text-sm font-bold text-slate-200 min-w-[120px] text-center">HOJE</span>
-                        <button class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"><i class="ph ph-caret-right"></i></button>
-                    </div>
                 </header>
 
                 <main id="main-content" class="flex-1 overflow-y-auto p-4 md:p-8 relative pb-24">
