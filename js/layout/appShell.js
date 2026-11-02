@@ -3,7 +3,8 @@ import { auth } from '../config/firebase.js';
 import { renderizarDashboard } from '../components/dashboard.js';
 import { renderizarLancamentos } from '../components/transactions.js';
 import { renderizarEspacos, limparListenerEspacos } from '../components/spaces.js';
-import { renderizarContas, limparListenerContas } from '../components/accounts.js'; // NOVO IMPORT
+import { renderizarContas, limparListenerContas } from '../components/accounts.js';
+import { renderizarInbox, limparListenerInbox } from '../components/inbox.js'; // NOVO IMPORT
 import { abrirModalTransacao } from '../components/transactionModal.js';
 
 export function renderizarLayout(user) {
@@ -31,7 +32,6 @@ export function renderizarLayout(user) {
                         <i class="ph ph-squares-four text-xl min-w-[24px]"></i>
                         <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Resumo Geral</span>
                     </button>
-                    <!-- NOVO BOTÃO -->
                     <button id="btn-nav-accounts" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
                         <i class="ph ph-bank text-xl min-w-[24px]"></i>
                         <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Contas & Cartões</span>
@@ -39,6 +39,11 @@ export function renderizarLayout(user) {
                     <button id="btn-nav-transactions" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
                         <i class="ph ph-list-dashes text-xl min-w-[24px]"></i>
                         <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Lançamentos</span>
+                    </button>
+                    <!-- NOVO BOTÃO DA INBOX -->
+                    <button id="btn-nav-inbox" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
+                        <i class="ph ph-tray text-xl min-w-[24px]"></i>
+                        <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Pendências</span>
                     </button>
                     <button id="btn-nav-spaces" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
                         <i class="ph ph-users text-xl min-w-[24px]"></i>
@@ -141,13 +146,14 @@ export function renderizarLayout(user) {
 
 // --- Sistema de Navegação (Roteamento simples) ---
     const btnDashboard = document.getElementById('btn-nav-dashboard');
-    const btnContas = document.getElementById('btn-nav-accounts'); // NOVO
+    const btnContas = document.getElementById('btn-nav-accounts');
     const btnLancamentos = document.getElementById('btn-nav-transactions');
+    const btnInbox = document.getElementById('btn-nav-inbox'); // NOVO
     const btnEspacos = document.getElementById('btn-nav-spaces');
     const mainContent = document.getElementById('main-content');
 
     function setAtivo(btnAtivo) {
-        [btnDashboard, btnContas, btnLancamentos, btnEspacos].forEach(b => {
+        [btnDashboard, btnContas, btnLancamentos, btnInbox, btnEspacos].forEach(b => {
             b.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden";
         });
         btnAtivo.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm bg-indigo-500/20 text-indigo-400 overflow-hidden";
@@ -158,43 +164,18 @@ export function renderizarLayout(user) {
             try { eval(mainContent.dataset.unsubscribe)(); } catch(e){}
             mainContent.dataset.unsubscribe = '';
         }
-        if (mainContent.dataset.unsubscribeEspacos) {
-            limparListenerEspacos(); 
-            mainContent.dataset.unsubscribeEspacos = '';
-        }
-        if (mainContent.dataset.unsubscribeContas) {
-            limparListenerContas(); // Chama a função que importamos das contas
-            mainContent.dataset.unsubscribeContas = '';
-        }
+        if (mainContent.dataset.unsubscribeEspacos) { limparListenerEspacos(); mainContent.dataset.unsubscribeEspacos = ''; }
+        if (mainContent.dataset.unsubscribeContas) { limparListenerContas(); mainContent.dataset.unsubscribeContas = ''; }
+        if (mainContent.dataset.unsubscribeInbox) { limparListenerInbox(); mainContent.dataset.unsubscribeInbox = ''; } // NOVO
     }
 
-    // Eventos de clique
-    btnDashboard.addEventListener('click', () => {
-        setAtivo(btnDashboard); limparAbaAnterior(); renderizarDashboard();
-        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
-    });
+    btnDashboard.addEventListener('click', () => { setAtivo(btnDashboard); limparAbaAnterior(); renderizarDashboard(); if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } });
+    btnContas.addEventListener('click', () => { setAtivo(btnContas); limparAbaAnterior(); renderizarContas(); if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } });
+    btnLancamentos.addEventListener('click', () => { setAtivo(btnLancamentos); limparAbaAnterior(); renderizarLancamentos(); if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } });
+    
+    // NOVO EVENTO INBOX
+    btnInbox.addEventListener('click', () => { setAtivo(btnInbox); limparAbaAnterior(); renderizarInbox(); if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } });
+    
+    btnEspacos.addEventListener('click', () => { setAtivo(btnEspacos); limparAbaAnterior(); renderizarEspacos(); if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } });
 
-    // NOVO EVENTO DE CLIQUE
-    btnContas.addEventListener('click', () => {
-        setAtivo(btnContas); limparAbaAnterior(); renderizarContas();
-        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
-    });
-
-    btnLancamentos.addEventListener('click', () => {
-        setAtivo(btnLancamentos); limparAbaAnterior(); renderizarLancamentos();
-        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
-    });
-
-    btnEspacos.addEventListener('click', () => {
-        setAtivo(btnEspacos); limparAbaAnterior(); renderizarEspacos();
-        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
-    });
-
-    document.getElementById('btn-add-tx').addEventListener('click', () => {
-        abrirModalTransacao();
-    });
-
-    // Iniciar UI
-    updateUI();
-    renderizarDashboard();
-}
+    document.getElementById('btn-add-tx').addEventListener('click', () => { abrirModalTransacao(); });
