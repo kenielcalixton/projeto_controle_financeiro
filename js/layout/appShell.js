@@ -179,3 +179,6 @@ export function renderizarLayout(user) {
     btnEspacos.addEventListener('click', () => { setAtivo(btnEspacos); limparAbaAnterior(); renderizarEspacos(); if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } });
 
     document.getElementById('btn-add-tx').addEventListener('click', () => { abrirModalTransacao(); });
+    updateUI();
+    renderizarDashboard();
+} 
