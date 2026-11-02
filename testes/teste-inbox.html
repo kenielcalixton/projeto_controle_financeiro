@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-PT" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Visual - Inbox e Negociação (Dispute)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { darkbg: '#0f172a', darkcard: '#1e293b', darkborder: '#334155' } } } }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+        body { font-family: 'Inter', sans-serif; overflow: hidden; }
+        .animate-fade-in { animation: fadeIn 0.2s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .chat-bubble-left { border-radius: 16px 16px 16px 4px; }
+        .chat-bubble-right { border-radius: 16px 16px 4px 16px; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 h-screen flex flex-col relative p-4 md:p-8 overflow-y-auto">
+
+    <!-- Cabeçalho e Abas -->
+    <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 max-w-4xl mx-auto w-full gap-4">
+        <h2 class="text-2xl font-bold">Caixa de Entrada</h2>
+        
+        <div class="flex bg-slate-800 p-1 rounded-xl border border-slate-700 w-full md:w-auto">
+            <button id="tab-pendentes" class="flex-1 md:px-6 py-2 text-sm font-bold rounded-lg bg-slate-700 text-amber-400 shadow transition-all">Pendentes (1)</button>
+            <button id="tab-historico" class="flex-1 md:px-6 py-2 text-sm font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all">Histórico</button>
+        </div>
+    </div>
+
+    <!-- Lista -->
+    <div class="max-w-4xl mx-auto w-full bg-darkcard border border-darkborder rounded-3xl p-6 shadow-sm min-h-[60vh]">
+        
+        <!-- View: Pendentes -->
+        <div id="view-pendentes" class="space-y-4 animate-fade-in">
+            <!-- Cobrança / Rateio -->
+            <div id="item-expense" class="p-5 bg-slate-800 rounded-2xl border border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-full flex items-center justify-center text-2xl shrink-0 bg-amber-500/20 text-amber-500 relative">
+                        <i class="ph-fill ph-bell-ringing"></i>
+                        <span class="absolute top-0 right-0 w-3 h-3 bg-rose-500 border-2 border-slate-800 rounded-full"></span>
+                    </div>
+                    <div>
+                        <p class="font-bold text-white">gabe@email.com enviou uma cobrança</p>
+                        <p class="text-sm font-medium text-slate-300">Compras do Supermercado</p>
+                        <p class="text-xs text-slate-400 mt-1">Valor Total: R$ 450,00 | Data: 12/11/2026</p>
+                    </div>
+                </div>
+                <div class="flex flex-col items-end gap-2 shrink-0 w-full md:w-auto">
+                    <div class="text-right flex justify-between md:block items-center w-full mb-2 md:mb-0">
+                        <p class="text-xs text-slate-400">A sua Parte</p>
+                        <span class="text-2xl font-bold text-rose-400">R$ 225,00</span>
+                    </div>
+                    <button id="btn-open-chat" class="w-full md:w-auto px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-500 transition-colors flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                        <i class="ph-fill ph-chat-circle-dots mr-2 text-lg"></i> Abrir Rateio
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- View: Histórico (Oculto por Padrão) -->
+        <div id="view-historico" class="space-y-4 hidden animate-fade-in">
+            <!-- Item Histórico 1: Recusado -->
+            <div class="p-5 bg-slate-800/50 rounded-2xl border border-slate-700/50 flex items-center justify-between gap-4 opacity-70">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 bg-rose-500/20 text-rose-500"><i class="ph-fill ph-x-circle"></i></div>
+                    <div>
+                        <p class="font-bold text-slate-300">Recusou o convite de joao@email.com</p>
+                        <p class="text-xs text-slate-500 mt-1">Viagem Réveillon • Ontem</p>
+                    </div>
+                </div>
+            </div>
+            <!-- Item Histórico 2: Resolvido via Negociação -->
+            <div class="p-5 bg-slate-800/50 rounded-2xl border border-slate-700/50 flex items-center justify-between gap-4 opacity-70">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 bg-emerald-500/20 text-emerald-500"><i class="ph-fill ph-check-circle"></i></div>
+                    <div>
+                        <p class="font-bold text-slate-300">Rateio de Pizza (Gabe)</p>
+                        <p class="text-xs text-slate-500 mt-1">Acordo fechado em R$ 35,00 • Há 2 dias</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Modal de Chat e Negociação -->
+    <div id="modal-chat" class="fixed inset-0 bg-black/80 z-[105] flex justify-center items-center p-4 hidden animate-fade-in">
+        <div class="bg-darkcard w-full max-w-md rounded-3xl shadow-2xl border border-darkborder overflow-hidden flex flex-col h-[90vh]">
+            
+            <div class="p-5 bg-slate-800 border-b border-darkborder flex justify-between items-center shrink-0">
+                <div>
+                    <h3 class="font-bold text-white text-lg leading-tight">Compras do Supermercado</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Criado por: gabe@email.com</p>
+                </div>
+                <button type="button" id="btn-close-chat" class="text-slate-400 hover:text-white bg-slate-700 w-8 h-8 rounded-full flex items-center justify-center transition-colors">
+                    <i class="ph ph-x text-lg"></i>
+                </button>
+            </div>
+            
+            <div class="p-4 bg-slate-900 border-b border-darkborder flex justify-between shrink-0">
+                <div class="text-center flex-1 border-r border-slate-700">
+                    <p class="text-[10px] uppercase text-slate-500 font-bold">Valor Total</p>
+                    <p class="text-lg font-bold text-slate-300">R$ 450,00</p>
+                </div>
+                <div class="text-center flex-1">
+                    <p class="text-[10px] uppercase text-slate-500 font-bold">A sua Parte (Proposta)</p>
+                    <p class="text-lg font-bold text-rose-400" id="display-user-amount">R$ 225,00</p>
+                </div>
+            </div>
+            
+            <!-- CHAT TIMELINE -->
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-900 scroll-smooth">
+                
+                <div class="flex flex-col items-start animate-fade-in">
+                    <span class="text-[10px] text-slate-500 mb-1">Gabe - 14:30</span>
+                    <div class="p-3 text-sm max-w-[85%] bg-slate-800 text-slate-200 border border-slate-700 chat-bubble-left shadow-sm">
+                        Amor, fiz as compras do mês no Atacadão. Passei no meu cartão, vê se os valores estão certos para ti.
+                    </div>
+                </div>
+
+                <!-- Simulação visual de como aparece uma Proposta / Contestação -->
+                <div class="flex flex-col items-center my-4 animate-fade-in">
+                    <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 w-full max-w-[90%] text-center">
+                        <i class="ph-fill ph-scales text-2xl text-amber-500 mb-2"></i>
+                        <p class="text-xs text-amber-400 font-bold uppercase tracking-wider mb-1">Você contestou o valor</p>
+                        <p class="text-sm text-slate-300 mb-3">Sugeriu pagar <strong class="text-white text-base">R$ 180,00</strong></p>
+                        <p class="text-xs text-slate-500 italic">"Gabe, lembra que eu comprei as carnes por fora ontem?"</p>
+                        <!-- Se fosse o Gabe a ver, ele teria botões aqui de "Aceitar Proposta" ou "Manter Original" -->
+                        <div class="mt-3 text-[10px] text-amber-500 font-bold bg-amber-500/20 py-1 rounded-md">A aguardar resposta de Gabe...</div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col items-start animate-fade-in">
+                    <span class="text-[10px] text-slate-500 mb-1">Gabe - 14:45</span>
+                    <div class="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 w-full max-w-[85%] chat-bubble-left shadow-sm">
+                        <p class="text-sm text-emerald-400 font-bold mb-1"><i class="ph-fill ph-check-circle mr-1"></i> Proposta Aceite!</p>
+                        <p class="text-xs text-slate-300">Verdade, esqueci-me disso. Valor ajustado para R$ 180!</p>
+                    </div>
+                </div>
+
+            </div>
+            
+            <!-- RODAPÉ DE AÇÕES (STATE MACHINE) -->
+            <div class="p-5 bg-slate-800 border-t border-darkborder shrink-0 transition-all" id="footer-container">
+                
+                <!-- ESTADO 1: Padrão (Chat, Aceitar, Recusar, Contestar) -->
+                <div id="state-default" class="animate-fade-in">
+                    <div class="flex gap-2 mb-3">
+                        <input type="text" id="chat-input" placeholder="Escreva uma mensagem..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+                        <button id="btn-send-msg" class="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center hover:bg-indigo-500 shrink-0 transition-colors">
+                            <i class="ph-fill ph-paper-plane-right text-lg"></i>
+                        </button>
+                    </div>
+                    
+                    <button id="btn-show-contest" class="w-full py-2 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-xl text-xs font-bold hover:bg-amber-500/20 transition-colors mb-2">
+                        <i class="ph-fill ph-scales mr-1"></i> Contestar Valor da Minha Parte
+                    </button>
+
+                    <div class="flex gap-2">
+                        <button id="btn-show-reject" class="flex-1 py-2.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl text-xs font-bold hover:bg-rose-500/20 transition-colors">Recusar</button>
+                        <button class="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-500 transition-colors shadow-lg">Aceitar (R$ 180)</button>
+                    </div>
+                </div>
+
+                <!-- ESTADO 2: Formulário de Recusa Estruturada -->
+                <div id="state-reject" class="hidden animate-fade-in space-y-3">
+                    <p class="text-xs font-bold text-rose-400 uppercase tracking-wider mb-2 border-b border-slate-700 pb-2">Motivo da Recusa</p>
+                    
+                    <select class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500">
+                        <option>Não reconheço esta despesa</option>
+                        <option>Já paguei por fora (Pix/Dinheiro)</option>
+                        <option>O valor total está errado</option>
+                        <option>Outro motivo...</option>
+                    </select>
+                    
+                    <input type="text" placeholder="Observação (Opcional)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500" />
+                    
+                    <div class="flex gap-2 pt-2">
+                        <button class="btn-cancel-state flex-1 py-2 text-slate-400 font-bold text-xs hover:bg-slate-700 rounded-xl transition-colors">Cancelar</button>
+                        <button class="flex-1 py-2 bg-rose-600 text-white font-bold text-xs rounded-xl hover:bg-rose-500 transition-colors shadow-lg shadow-rose-500/20">Confirmar Recusa</button>
+                    </div>
+                </div>
+
+                <!-- ESTADO 3: Formulário de Contestação de Valor -->
+                <div id="state-contest" class="hidden animate-fade-in space-y-3">
+                    <p class="text-xs font-bold text-amber-500 uppercase tracking-wider mb-2 border-b border-slate-700 pb-2">Sugerir Novo Valor</p>
+                    
+                    <div class="flex items-center bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 focus-within:border-amber-500 transition-colors">
+                        <span class="text-slate-500 text-sm font-bold mr-2">R$</span>
+                        <input type="number" step="0.01" placeholder="Qual valor considera justo?" class="w-full bg-transparent p-0 text-white text-base focus:outline-none font-bold" />
+                    </div>
+                    
+                    <input type="text" placeholder="Justificativa (Ex: Eu comprei o carvão)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500" />
+                    
+                    <div class="flex gap-2 pt-2">
+                        <button class="btn-cancel-state flex-1 py-2 text-slate-400 font-bold text-xs hover:bg-slate-700 rounded-xl transition-colors">Cancelar</button>
+                        <button class="flex-1 py-2 bg-amber-500 text-slate-900 font-bold text-xs rounded-xl hover:bg-amber-400 transition-colors shadow-lg shadow-amber-500/20">Enviar Proposta</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Lógica de Abas
+        const tabPend = document.getElementById('tab-pendentes');
+        const tabHist = document.getElementById('tab-historico');
+        const viewPend = document.getElementById('view-pendentes');
+        const viewHist = document.getElementById('view-historico');
+
+        tabPend.addEventListener('click', () => {
+            tabPend.className = 'flex-1 md:px-6 py-2 text-sm font-bold rounded-lg bg-slate-700 text-amber-400 shadow transition-all';
+            tabHist.className = 'flex-1 md:px-6 py-2 text-sm font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all';
+            viewPend.classList.remove('hidden'); viewHist.classList.add('hidden');
+        });
+
+        tabHist.addEventListener('click', () => {
+            tabHist.className = 'flex-1 md:px-6 py-2 text-sm font-bold rounded-lg bg-slate-700 text-white shadow transition-all';
+            tabPend.className = 'flex-1 md:px-6 py-2 text-sm font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all';
+            viewHist.classList.remove('hidden'); viewPend.classList.add('hidden');
+        });
+
+        // Lógica: Abrir Modal
+        const modalChat = document.getElementById('modal-chat');
+        const containerMsgs = document.getElementById('chat-messages');
+        
+        document.getElementById('btn-open-chat').addEventListener('click', () => {
+            modalChat.classList.remove('hidden');
+            containerMsgs.scrollTop = containerMsgs.scrollHeight; // Rola para o fim
+        });
+        document.getElementById('btn-close-chat').addEventListener('click', () => modalChat.classList.add('hidden'));
+
+        // Lógica: Máquina de Estados do Rodapé (Default, Recusar, Contestar)
+        const stateDefault = document.getElementById('state-default');
+        const stateReject = document.getElementById('state-reject');
+        const stateContest = document.getElementById('state-contest');
+
+        const changeState = (state) => {
+            stateDefault.classList.add('hidden');
+            stateReject.classList.add('hidden');
+            stateContest.classList.add('hidden');
+            
+            if(state === 'reject') stateReject.classList.remove('hidden');
+            else if(state === 'contest') stateContest.classList.remove('hidden');
+            else stateDefault.classList.remove('hidden');
+            
+            containerMsgs.scrollTop = containerMsgs.scrollHeight;
+        };
+
+        document.getElementById('btn-show-reject').addEventListener('click', () => changeState('reject'));
+        document.getElementById('btn-show-contest').addEventListener('click', () => changeState('contest'));
+        document.querySelectorAll('.btn-cancel-state').forEach(btn => btn.addEventListener('click', () => changeState('default')));
+
+        // Lógica: Enviar Mensagem (Chat normal)
+        const btnSend = document.getElementById('btn-send-msg');
+        const inputChat = document.getElementById('chat-input');
+
+        const enviarMensagem = () => {
+            const texto = inputChat.value.trim();
+            if (!texto) return;
+            const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            
+            containerMsgs.insertAdjacentHTML('beforeend', `
+                <div class="flex flex-col items-end animate-fade-in">
+                    <span class="text-[10px] text-slate-500 mb-1">Você - ${hora}</span>
+                    <div class="p-3 text-sm max-w-[85%] bg-indigo-600 text-white chat-bubble-right shadow-sm">${texto}</div>
+                </div>
+            `);
+            inputChat.value = '';
+            containerMsgs.scrollTop = containerMsgs.scrollHeight;
+        };
+
+        btnSend.addEventListener('click', enviarMensagem);
+        inputChat.addEventListener('keypress', (e) => { if (e.key === 'Enter') enviarMensagem(); });
+
+    </script>
+</body>
+</html>
