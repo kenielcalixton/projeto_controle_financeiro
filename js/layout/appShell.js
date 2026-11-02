@@ -3,6 +3,7 @@ import { auth } from '../config/firebase.js';
 import { renderizarDashboard } from '../components/dashboard.js';
 import { renderizarLancamentos } from '../components/transactions.js';
 import { renderizarEspacos, limparListenerEspacos } from '../components/spaces.js';
+import { renderizarContas, limparListenerContas } from '../components/accounts.js'; // NOVO IMPORT
 import { abrirModalTransacao } from '../components/transactionModal.js';
 
 export function renderizarLayout(user) {
@@ -29,6 +30,11 @@ export function renderizarLayout(user) {
                     <button id="btn-nav-dashboard" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm bg-indigo-500/20 text-indigo-400 overflow-hidden">
                         <i class="ph ph-squares-four text-xl min-w-[24px]"></i>
                         <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Resumo Geral</span>
+                    </button>
+                    <!-- NOVO BOTÃO -->
+                    <button id="btn-nav-accounts" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
+                        <i class="ph ph-bank text-xl min-w-[24px]"></i>
+                        <span class="sidebar-text ml-3 whitespace-nowrap transition-opacity duration-300 md:opacity-0">Contas & Cartões</span>
                     </button>
                     <button id="btn-nav-transactions" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden">
                         <i class="ph ph-list-dashes text-xl min-w-[24px]"></i>
@@ -133,14 +139,15 @@ export function renderizarLayout(user) {
         auth.signOut();
     });
 
-    // --- Sistema de Navegação (Roteamento simples) ---
+// --- Sistema de Navegação (Roteamento simples) ---
     const btnDashboard = document.getElementById('btn-nav-dashboard');
+    const btnContas = document.getElementById('btn-nav-accounts'); // NOVO
     const btnLancamentos = document.getElementById('btn-nav-transactions');
     const btnEspacos = document.getElementById('btn-nav-spaces');
     const mainContent = document.getElementById('main-content');
 
     function setAtivo(btnAtivo) {
-        [btnDashboard, btnLancamentos, btnEspacos].forEach(b => {
+        [btnDashboard, btnContas, btnLancamentos, btnEspacos].forEach(b => {
             b.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm text-slate-400 hover:bg-slate-700 overflow-hidden";
         });
         btnAtivo.className = "nav-btn w-full flex items-center p-3 rounded-xl transition-all font-bold text-sm bg-indigo-500/20 text-indigo-400 overflow-hidden";
@@ -152,37 +159,42 @@ export function renderizarLayout(user) {
             mainContent.dataset.unsubscribe = '';
         }
         if (mainContent.dataset.unsubscribeEspacos) {
-            limparListenerEspacos();
+            limparListenerEspacos(); 
             mainContent.dataset.unsubscribeEspacos = '';
+        }
+        if (mainContent.dataset.unsubscribeContas) {
+            limparListenerContas(); // Chama a função que importamos das contas
+            mainContent.dataset.unsubscribeContas = '';
         }
     }
 
+    // Eventos de clique
     btnDashboard.addEventListener('click', () => {
-        setAtivo(btnDashboard);
-        limparAbaAnterior();
-        renderizarDashboard();
+        setAtivo(btnDashboard); limparAbaAnterior(); renderizarDashboard();
+        if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
+    });
+
+    // NOVO EVENTO DE CLIQUE
+    btnContas.addEventListener('click', () => {
+        setAtivo(btnContas); limparAbaAnterior(); renderizarContas();
         if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
     });
 
     btnLancamentos.addEventListener('click', () => {
-        setAtivo(btnLancamentos);
-        limparAbaAnterior();
-        renderizarLancamentos();
+        setAtivo(btnLancamentos); limparAbaAnterior(); renderizarLancamentos();
         if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
     });
 
     btnEspacos.addEventListener('click', () => {
-        setAtivo(btnEspacos);
-        limparAbaAnterior();
-        renderizarEspacos();
+        setAtivo(btnEspacos); limparAbaAnterior(); renderizarEspacos();
         if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); }
     });
-    
+
     document.getElementById('btn-add-tx').addEventListener('click', () => {
         abrirModalTransacao();
     });
 
-    // Inicializa a UI e injeta a aba do Dashboard
+    // Iniciar UI
     updateUI();
     renderizarDashboard();
 }

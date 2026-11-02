@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-PT" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Visual - Contas e Extrato Avançado</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { darkbg: '#0f172a', darkcard: '#1e293b', darkborder: '#334155' } } } }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+        body { font-family: 'Inter', sans-serif; overflow: hidden; }
+        .animate-fade-in { animation: fadeIn 0.2s ease-in-out; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 h-screen flex flex-col relative p-4 md:p-8 overflow-y-auto">
+
+    <div class="flex justify-between items-center mb-8 max-w-6xl mx-auto w-full">
+        <h2 class="text-2xl font-bold">Contas e Cartões</h2>
+        <button id="btn-new-account" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 transition-colors">
+            + Nova Conta / Cartão
+        </button>
+    </div>
+
+    <div class="max-w-6xl mx-auto w-full space-y-10 pb-20">
+        
+        <!-- SECÇÃO BANCÁRIA -->
+        <div>
+            <div class="flex items-center mb-4">
+                <i class="ph-fill ph-bank text-indigo-400 text-2xl mr-2"></i>
+                <h3 class="text-lg font-bold text-slate-300">Contas Bancárias</h3>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div class="card-account p-6 bg-darkcard border border-darkborder rounded-3xl relative group hover:border-indigo-500/50 transition-colors cursor-pointer" data-type="wallet" data-name="Carteira" data-balance="1500">
+                    <div class="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <button class="btn-action text-slate-400 hover:text-indigo-400 bg-slate-800 p-2 rounded-lg" title="Editar"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
+                    </div>
+                    <div class="w-12 h-12 rounded-full bg-indigo-500/20 text-indigo-500 flex items-center justify-center text-2xl mb-4 pointer-events-none"><i class="ph-fill ph-wallet"></i></div>
+                    <h4 class="font-bold text-slate-200 text-lg pointer-events-none">Carteira</h4>
+                    <p class="text-xs text-slate-400 mb-1 pointer-events-none">Saldo Atual</p>
+                    <p class="text-2xl font-bold text-emerald-500 pointer-events-none">R$ 1.500,00</p>
+                </div>
+
+                <div class="card-account p-6 bg-darkcard border border-darkborder rounded-3xl relative group hover:border-indigo-500/50 transition-colors cursor-pointer" data-type="wallet" data-name="Banco Itaú" data-balance="3250">
+                    <div class="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <button class="btn-action text-slate-400 hover:text-indigo-400 bg-slate-800 p-2 rounded-lg" title="Editar"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
+                        <button class="btn-action text-slate-400 hover:text-rose-400 bg-slate-800 p-2 rounded-lg" title="Excluir"><i class="ph ph-trash text-lg pointer-events-none"></i></button>
+                    </div>
+                    <div class="w-12 h-12 rounded-full bg-indigo-500/20 text-indigo-500 flex items-center justify-center text-2xl mb-4 pointer-events-none"><i class="ph-fill ph-bank"></i></div>
+                    <h4 class="font-bold text-slate-200 text-lg pointer-events-none">Banco Itaú</h4>
+                    <p class="text-xs text-slate-400 mb-1 pointer-events-none">Saldo Atual</p>
+                    <p class="text-2xl font-bold text-emerald-500 pointer-events-none">R$ 3.250,00</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECÇÃO CARTÕES -->
+        <div>
+            <div class="flex items-center mb-4">
+                <i class="ph-fill ph-credit-card text-purple-400 text-2xl mr-2"></i>
+                <h3 class="text-lg font-bold text-slate-300">Cartões de Crédito</h3>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div class="card-account p-6 bg-darkcard border border-darkborder rounded-3xl relative group hover:border-purple-500/50 transition-colors cursor-pointer" data-type="credit" data-name="Nubank" data-balance="850">
+                    <div class="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <button class="btn-action text-slate-400 hover:text-purple-400 bg-slate-800 p-2 rounded-lg" title="Editar"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
+                        <button class="btn-action text-slate-400 hover:text-rose-400 bg-slate-800 p-2 rounded-lg" title="Excluir"><i class="ph ph-trash text-lg pointer-events-none"></i></button>
+                    </div>
+                    <div class="w-12 h-12 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-2xl mb-4 pointer-events-none"><i class="ph-fill ph-credit-card"></i></div>
+                    <h4 class="font-bold text-slate-200 text-lg pointer-events-none">Nubank</h4>
+                    <div class="mt-4 pointer-events-none">
+                        <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">Fatura Atual</span><span class="text-slate-200 font-bold">R$ 850,00</span></div>
+                        <div class="w-full bg-slate-800 rounded-full h-2 mb-1"><div class="bg-purple-500 h-2 rounded-full" style="width: 42%"></div></div>
+                        <div class="flex justify-between text-[10px] text-slate-500"><span>Vence dia 10</span><span>Limite: R$ 2.000,00</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Adicionar -->
+    <div id="modal-account" class="fixed inset-0 bg-black/80 z-[105] flex items-center justify-center p-4 hidden animate-fade-in">
+        <form id="form-account" class="bg-darkcard w-full max-w-md rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-white">Configurar Conta</h2>
+                <button type="button" id="btn-close-modal" class="text-slate-400 hover:text-rose-500 transition-colors"><i class="ph ph-x text-2xl"></i></button>
+            </div>
+            <p class="text-slate-400 mb-6 text-sm">Painel de criação de contas e limites (já validado).</p>
+            <div class="flex justify-end pt-4 border-t border-slate-700">
+                <button type="button" id="btn-cancel" class="px-5 py-2.5 bg-slate-800 text-white font-bold hover:bg-slate-700 rounded-xl transition-colors">Fechar</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Modal EXTRATO DETALHADO -->
+    <div id="modal-extract" class="fixed inset-0 bg-slate-900 z-[105] hidden flex-col md:flex-row animate-fade-in">
+        
+        <!-- Lado Esquerdo: Resumo do Cartão/Conta (Agora com Detalhes) -->
+        <div class="w-full md:w-1/3 bg-darkcard p-8 flex flex-col border-r border-darkborder overflow-y-auto">
+            <div>
+                <button id="btn-close-extract" class="w-10 h-10 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center hover:bg-slate-700 hover:text-white mb-8 transition-colors"><i class="ph ph-arrow-left text-xl"></i></button>
+                
+                <div id="extract-icon-box" class="w-16 h-16 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-3xl mb-4">
+                    <i id="extract-icon" class="ph-fill ph-wallet"></i>
+                </div>
+                
+                <h2 id="extract-title" class="text-3xl font-bold text-white mb-2">Conta</h2>
+                <p id="extract-subtitle" class="text-slate-400 text-sm">Resumo</p>
+                <p id="extract-total" class="text-4xl font-bold mt-2 text-emerald-500">R$ 0,00</p>
+            </div>
+
+            <!-- NOVO: Caixa de Métricas Detalhadas -->
+            <div id="extract-metrics" class="mt-8 bg-slate-800/50 rounded-2xl p-5 border border-slate-700/50 space-y-4">
+                <!-- Injetado via JS consoante o tipo (Conta ou Cartão) -->
+            </div>
+        </div>
+
+        <!-- Lado Direito: Timeline -->
+        <div class="w-full md:w-2/3 p-8 overflow-y-auto bg-slate-900 relative">
+            <h3 class="text-xl font-bold text-white mb-6">Timeline de Lançamentos</h3>
+            <div class="absolute top-8 right-8 text-slate-500 font-bold text-sm">NOVEMBRO 2026</div>
+            <div id="extract-timeline" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        const modalForm = document.getElementById('modal-account');
+        const modalExtract = document.getElementById('modal-extract');
+        
+        const exIconBox = document.getElementById('extract-icon-box');
+        const exIcon = document.getElementById('extract-icon');
+        const exTitle = document.getElementById('extract-title');
+        const exSubtitle = document.getElementById('extract-subtitle');
+        const exTotal = document.getElementById('extract-total');
+        const exMetrics = document.getElementById('extract-metrics');
+        const exTimeline = document.getElementById('extract-timeline');
+
+        document.getElementById('btn-new-account').addEventListener('click', () => modalForm.classList.remove('hidden'));
+        document.getElementById('btn-close-modal').addEventListener('click', () => modalForm.classList.add('hidden'));
+        document.getElementById('btn-cancel').addEventListener('click', () => modalForm.classList.add('hidden'));
+        document.getElementById('btn-close-extract').addEventListener('click', () => modalExtract.classList.add('hidden'));
+
+        document.querySelectorAll('.btn-action').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation(); 
+                modalForm.classList.remove('hidden');
+            });
+        });
+
+        // Lógica: Preencher o Extrato e o Resumo Detalhado
+        document.querySelectorAll('.card-account').forEach(card => {
+            card.addEventListener('click', (e) => {
+                const type = card.dataset.type;
+                const name = card.dataset.name;
+                const balance = parseFloat(card.dataset.balance);
+
+                exTitle.innerText = name;
+                
+                if (type === 'credit') {
+                    // Estilo Cartão de Crédito
+                    exIconBox.className = 'w-16 h-16 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-3xl mb-4';
+                    exIcon.className = 'ph-fill ph-credit-card';
+                    exSubtitle.innerText = 'Fatura Prevista do Mês';
+                    exTotal.innerText = `R$ ${balance.toFixed(2)}`;
+                    exTotal.className = 'text-4xl font-bold mt-2 text-purple-500';
+                    
+                    // Resumo Métricas de Cartão (Fatura)
+                    exMetrics.innerHTML = `
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="text-slate-400">Total Lançado</span>
+                            <span class="font-bold text-slate-200">R$ ${balance.toFixed(2)}</span>
+                        </div>
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="text-slate-400">Fatura Paga (Efetivado)</span>
+                            <span class="font-bold text-emerald-400">R$ 0,00</span>
+                        </div>
+                        <div class="pt-3 border-t border-slate-700 flex justify-between items-center text-sm">
+                            <span class="text-slate-300 font-bold">Total Aberto</span>
+                            <span class="font-bold text-rose-400">R$ ${balance.toFixed(2)}</span>
+                        </div>
+                    `;
+
+                } else {
+                    // Estilo Conta Bancária
+                    exIconBox.className = 'w-16 h-16 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-3xl mb-4';
+                    exIcon.className = name === 'Carteira' ? 'ph-fill ph-wallet' : 'ph-fill ph-bank';
+                    exSubtitle.innerText = 'Saldo Final Projetado';
+                    exTotal.innerText = `R$ ${balance.toFixed(2)}`;
+                    exTotal.className = 'text-4xl font-bold mt-2 text-indigo-400';
+
+                    // Resumo Métricas Bancárias Completas
+                    exMetrics.innerHTML = `
+                        <div class="space-y-3">
+                            <div>
+                                <div class="flex justify-between items-center text-sm mb-1">
+                                    <span class="text-slate-400">Total Receitas</span>
+                                    <span class="font-bold text-emerald-500">+ R$ 2.000,00</span>
+                                </div>
+                                <div class="flex justify-between items-center text-[10px] text-slate-500">
+                                    <span>Efetivadas: <strong class="text-emerald-400">R$ 1.500,00</strong></span>
+                                    <span>Pendentes: R$ 500,00</span>
+                                </div>
+                            </div>
+                            
+                            <div class="pt-2 border-t border-slate-700">
+                                <div class="flex justify-between items-center text-sm mb-1">
+                                    <span class="text-slate-400">Total Despesas</span>
+                                    <span class="font-bold text-rose-500">- R$ 500,00</span>
+                                </div>
+                                <div class="flex justify-between items-center text-[10px] text-slate-500">
+                                    <span>Efetivadas: <strong class="text-rose-400">R$ 200,00</strong></span>
+                                    <span>Pendentes: R$ 300,00</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 pt-4 border-t border-slate-700 space-y-2">
+                            <div class="flex justify-between items-center text-sm">
+                                <span class="text-slate-400">Saldo Atual (Efetivado)</span>
+                                <span class="font-bold text-emerald-400">R$ 1.300,00</span>
+                            </div>
+                            <div class="flex justify-between items-center text-sm">
+                                <span class="text-slate-200 font-bold">Saldo Projetado</span>
+                                <span class="font-bold text-indigo-400">R$ 1.500,00</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                exTimeline.innerHTML = '';
+                const numLancamentos = type === 'credit' ? 3 : 2;
+                for (let i = 1; i <= numLancamentos; i++) {
+                    const isIncome = type !== 'credit' && i % 2 === 0; 
+                    const val = isIncome ? 500 : 150;
+                    
+                    exTimeline.innerHTML += `
+                        <div class="flex justify-between items-center p-4 bg-darkcard border border-darkborder rounded-xl hover:border-slate-600 transition-colors">
+                            <div class="flex items-center">
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center mr-4 ${isIncome ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">
+                                    <i class="ph-bold ${isIncome ? 'ph-arrow-down-left' : 'ph-arrow-up-right'}"></i>
+                                </div>
+                                <div>
+                                    <p class="font-bold text-slate-200">Lançamento Exemplo ${i}</p>
+                                    <p class="text-xs text-slate-400">Data: 1${i}/11/2026</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-bold ${isIncome ? 'text-emerald-500' : 'text-rose-500'}">${isIncome ? '+' : '-'} R$ ${val.toFixed(2)}</p>
+                                <span class="text-[10px] uppercase font-bold ${isIncome ? 'text-emerald-400' : 'text-amber-400'}">${isIncome ? 'Efetivado' : 'Pendente'}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                modalExtract.classList.remove('hidden');
+                modalExtract.classList.add('flex');
+            });
+        });
+    </script>
+</body>
+</html>
