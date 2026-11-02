@@ -1,5 +1,6 @@
 // js/components/transactionModal.js
 import { auth, db } from '../config/firebase.js';
+import { processarNotificacaoEmail } from '../services/emailService.js';
 import { collection, addDoc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // Variável global para evitar injetar o HTML repetidas vezes
@@ -253,6 +254,18 @@ function configurarEventosBase() {
 
             // 1. Salva a Transação Principal
             const docRef = await addDoc(collection(db, 'transactions'), txData);
+            // Novo: Disparar e-mails de rateio
+            if (txData.splitParticipants && txData.splitParticipants.length > 1) {
+                const user = auth.currentUser;
+                txData.splitParticipants.forEach(participante => {
+                    if (participante.email !== user.email) {
+                        processarNotificacaoEmail(participante.email, user.email, 'rateio', { 
+                            descricao: txData.description, 
+                            valor: participante.amount 
+                        });
+                    }
+                });
+            }
 
             // 2. [LÓGICA DE PROSPECÇÃO] Gravar na Coleção "mail" para utilizadores avulsos
             // O Firebase Trigger Email vai detetar isto e enviar um e-mail automaticamente!

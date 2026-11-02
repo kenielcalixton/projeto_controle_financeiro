@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-PT" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Visual - Lançamentos PRO (Bottom Totals)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { darkbg: '#0f172a', darkcard: '#1e293b', darkborder: '#334155' } } } }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+        body { font-family: 'Inter', sans-serif; overflow: hidden; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 h-screen flex flex-col p-4 md:p-8 overflow-y-auto">
+
+    <div class="max-w-7xl mx-auto w-full flex flex-col h-full">
+        
+        <!-- Cabeçalho Fixo -->
+        <div class="flex justify-between items-center mb-4 shrink-0">
+            <h2 class="text-2xl font-bold text-white">Lançamentos</h2>
+            <div class="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
+                <button class="px-4 py-1.5 text-sm font-bold rounded-lg bg-slate-700 text-indigo-400 shadow transition-all">Novembro</button>
+            </div>
+        </div>
+
+        <!-- Tabela (Agora com mais ênfase no topo) -->
+        <div class="bg-darkcard border border-darkborder rounded-3xl flex-1 overflow-hidden shadow-sm animate-fade-in flex flex-col min-h-[400px]">
+            <div class="overflow-auto flex-1">
+                <table class="w-full text-left border-collapse min-w-[900px]">
+                    <thead class="sticky top-0 z-10">
+                        <tr class="border-b border-darkborder bg-slate-800">
+                            <th class="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-20">Ações</th>
+                            <th class="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-32">Situação</th>
+                            <th class="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-24">Data</th>
+                            <th class="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Descrição & Origem</th>
+                            <th class="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider w-40">Categoria</th>
+                            <th class="p-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right w-40">A Sua Parte</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-darkborder">
+                        
+                        <!-- Vencido -->
+                        <tr class="bg-rose-500/5 hover:bg-rose-500/10 transition-colors group">
+                            <td class="p-4 align-top pt-5">
+                                <div class="flex space-x-2">
+                                    <button class="text-slate-500 hover:text-indigo-400 transition-colors"><i class="ph ph-pencil-simple text-lg"></i></button>
+                                </div>
+                            </td>
+                            <td class="p-4 align-top pt-5"><span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center w-max"><i class="ph-fill ph-warning-circle mr-1"></i> Vencido</span></td>
+                            <td class="p-4 text-sm font-bold text-rose-400 align-top pt-5">28/10/2026</td>
+                            <td class="p-4">
+                                <div class="flex items-center gap-2 mb-1.5"><p class="text-sm font-bold text-white">Internet</p></div>
+                                <div class="flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                    <span class="flex items-center gap-1"><i class="ph-fill ph-bank text-slate-400"></i> Itaú</span>
+                                </div>
+                            </td>
+                            <td class="p-4 align-top pt-4"><span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center w-max mt-0.5"><i class="ph-fill ph-wifi-high mr-1.5"></i> Casa</span></td>
+                            <td class="p-4 text-right align-top pt-5"><p class="text-sm font-bold text-rose-500">- R$ 120,00</p></td>
+                        </tr>
+
+                        <!-- Pendente (Rateio) -->
+                        <tr class="hover:bg-slate-800/50 transition-colors group">
+                            <td class="p-4 align-top pt-5">
+                                <div class="flex space-x-2">
+                                    <button class="text-slate-500 hover:text-indigo-400 transition-colors"><i class="ph ph-pencil-simple text-lg"></i></button>
+                                </div>
+                            </td>
+                            <td class="p-4 align-top pt-5"><span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-500 border border-amber-500/30 flex items-center w-max"><i class="ph-fill ph-clock mr-1"></i> Pendente</span></td>
+                            <td class="p-4 text-sm text-slate-300 align-top pt-5">02/11/2026</td>
+                            <td class="p-4">
+                                <div class="flex items-center gap-2 mb-1.5">
+                                    <p class="text-sm font-bold text-white">Supermercado</p>
+                                    <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/20 text-indigo-400 uppercase border border-indigo-500/20">Rateio</span>
+                                </div>
+                                <div class="flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                    <span class="flex items-center gap-1"><i class="ph-fill ph-credit-card text-slate-400"></i> Nubank</span>
+                                    <span class="text-slate-700">•</span>
+                                    <span class="flex items-center gap-1 text-indigo-400/70"><i class="ph-fill ph-users"></i> Casa</span>
+                                </div>
+                            </td>
+                            <td class="p-4 align-top pt-4"><span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-orange-500/10 text-orange-400 border border-orange-500/20 flex items-center w-max mt-0.5"><i class="ph-fill ph-shopping-cart mr-1.5"></i> Alimentação</span></td>
+                            <td class="p-4 text-right">
+                                <p class="text-sm font-bold text-rose-500">- R$ 150,00</p>
+                                <p class="text-[10px] text-slate-500 font-medium mt-1">Total: R$ 300,00</p>
+                            </td>
+                        </tr>
+
+                        <!-- Pago -->
+                        <tr class="hover:bg-slate-800/50 transition-colors group opacity-70 hover:opacity-100">
+                            <td class="p-4 align-top pt-5">
+                                <div class="flex space-x-2">
+                                    <button class="text-slate-500 hover:text-indigo-400 transition-colors"><i class="ph ph-pencil-simple text-lg"></i></button>
+                                </div>
+                            </td>
+                            <td class="p-4 align-top pt-5"><span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center w-max"><i class="ph-fill ph-check-circle mr-1"></i> Efetivado</span></td>
+                            <td class="p-4 text-sm text-slate-300 align-top pt-5">01/11/2026</td>
+                            <td class="p-4">
+                                <div class="flex items-center gap-2 mb-1.5"><p class="text-sm font-bold text-white">Salário</p></div>
+                                <div class="flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                    <span class="flex items-center gap-1"><i class="ph-fill ph-bank text-slate-400"></i> Itaú</span>
+                                </div>
+                            </td>
+                            <td class="p-4 align-top pt-4"><span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center w-max mt-0.5"><i class="ph-fill ph-money mr-1.5"></i> Salário</span></td>
+                            <td class="p-4 text-right align-top pt-5"><p class="text-sm font-bold text-emerald-500">+ R$ 5.250,00</p></td>
+                        </tr>
+
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Totalizadores Detalhados (No Rodapé) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 shrink-0 pb-4 animate-fade-in">
+            
+            <!-- Receitas -->
+            <div class="bg-darkcard border border-darkborder p-5 rounded-2xl flex flex-col justify-between">
+                <div class="flex justify-between items-start mb-3">
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Receitas do Mês</p>
+                    <div class="w-8 h-8 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-lg"><i class="ph-fill ph-trend-up"></i></div>
+                </div>
+                <div>
+                    <p class="text-[10px] text-slate-500 font-bold uppercase mb-0.5">Efetivado (Atual)</p>
+                    <p class="text-2xl font-bold text-emerald-500 mb-2">R$ 5.250,00</p>
+                    <div class="flex justify-between items-center text-xs font-medium border-t border-slate-700/50 pt-2.5 mt-1">
+                        <span class="text-slate-400">Total Previsto</span>
+                        <span class="text-emerald-400/70 font-bold">R$ 6.000,00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Despesas -->
+            <div class="bg-darkcard border border-darkborder p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden">
+                <!-- Linha lateral vermelha se houver vencido -->
+                <div class="absolute left-0 top-0 bottom-0 w-1 bg-rose-500"></div>
+                <div class="flex justify-between items-start mb-3 pl-2">
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Despesas do Mês</p>
+                    <div class="w-8 h-8 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center text-lg"><i class="ph-fill ph-trend-down"></i></div>
+                </div>
+                <div class="pl-2">
+                    <p class="text-[10px] text-slate-500 font-bold uppercase mb-0.5">Efetivado (Pago)</p>
+                    <p class="text-2xl font-bold text-white mb-2">- R$ 1.800,00</p>
+                    <div class="flex justify-between items-center text-[11px] font-medium border-t border-slate-700/50 pt-2.5 mt-1">
+                        <span class="text-slate-400 flex items-center"><i class="ph-fill ph-warning-circle text-rose-500 mr-1"></i> Vencido: <strong class="text-rose-400 ml-1"> R$ 120,00</strong></span>
+                        <span class="text-slate-400">Previsto: <strong class="text-slate-200">R$ 2.450,00</strong></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Saldo -->
+            <div class="bg-indigo-600/10 border border-indigo-500/30 p-5 rounded-2xl flex flex-col justify-between">
+                <div class="flex justify-between items-start mb-3">
+                    <p class="text-xs font-bold text-indigo-300 uppercase tracking-wider">Saldo em Contas</p>
+                    <div class="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-lg"><i class="ph-fill ph-wallet"></i></div>
+                </div>
+                <div>
+                    <p class="text-[10px] text-indigo-300/70 font-bold uppercase mb-0.5">Atual (Real)</p>
+                    <p class="text-2xl font-bold text-indigo-400 mb-2">R$ 3.450,00</p>
+                    <div class="flex justify-between items-center text-xs font-medium border-t border-indigo-500/20 pt-2.5 mt-1">
+                        <span class="text-indigo-300/70">Projetado (Fim do Mês)</span>
+                        <span class="text-indigo-300 font-bold">R$ 3.550,00</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+</body>
+</html>

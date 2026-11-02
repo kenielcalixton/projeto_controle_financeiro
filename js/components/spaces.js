@@ -1,6 +1,8 @@
 // js/components/spaces.js
 import { auth, db } from '../config/firebase.js';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { processarNotificacaoEmail } from '../services/emailService.js';
+// Adicionado o getDoc aos imports do Firestore
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 let unsubscribeEspacos = null;
 let isModalInjected = false;
@@ -108,7 +110,7 @@ export function renderizarEspacos() {
 
     });
 
-    main.dataset.unsubscribeEspacos = "true"; // Sinalizador para o router
+    main.dataset.unsubscribeEspacos = "true";
 }
 
 export function limparListenerEspacos() {
@@ -262,10 +264,9 @@ function configurarEventosModal() {
             let participantEmails = [user.email, ...emailsAmigos];
             participantEmails = [...new Set(participantEmails)]; // Remove duplicados
             
-            // Dados de status (Quem aceitou o convite)
-            const membersData = participantEmails.map(email => ({
+            let membersData = participantEmails.map(email => ({
                 email: email,
-                status: email === user.email ? 'accepted' : 'pending' // O criador aceita automaticamente
+                status: email === user.email ? 'accepted' : 'pending' 
             }));
 
             const spaceData = {
@@ -282,7 +283,37 @@ function configurarEventosModal() {
             if (estadoAtual.modo === 'criar') {
                 spaceData.createdAt = new Date().toISOString();
                 await addDoc(collection(db, 'spaces'), spaceData);
+                
+                // Disparar e-mails de convite
+                if (!isIndividual) {
+                    emailsAmigos.forEach(emailConvidado => {
+                        processarNotificacaoEmail(emailConvidado, user.email, 'espaco', { nomeEspaco: spaceData.name });
+                    });
+                }
             } else if (estadoAtual.modo === 'editar' && estadoAtual.espacoId) {
+                if (!isIndividual) {
+                    const docSnap = await getDoc(doc(db, 'spaces', estadoAtual.espacoId));
+                    if (docSnap.exists()) {
+                        const dadosAntigos = docSnap.data();
+                        const emailsAntigos = dadosAntigos.participantEmails || [];
+                        
+                        // Preservar os status antigos para quem já estava no grupo e aceitou
+                        spaceData.membersData = participantEmails.map(email => {
+                            const membroAntigo = (dadosAntigos.membersData || []).find(m => m.email === email);
+                            return {
+                                email: email,
+                                status: membroAntigo ? membroAntigo.status : (email === user.email ? 'accepted' : 'pending')
+                            };
+                        });
+
+                        // Filtra quem está na lista nova, mas não estava na antiga e envia e-mail APENAS a eles
+                        const novosConvidados = emailsAmigos.filter(email => !emailsAntigos.includes(email));
+                        novosConvidados.forEach(emailConvidado => {
+                            processarNotificacaoEmail(emailConvidado, user.email, 'espaco', { nomeEspaco: spaceData.name });
+                        });
+                    }
+                }
+                
                 await updateDoc(doc(db, 'spaces', estadoAtual.espacoId), spaceData);
             }
 
