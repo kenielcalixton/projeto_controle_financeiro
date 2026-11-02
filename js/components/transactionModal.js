@@ -1,14 +1,21 @@
 // js/components/transactionModal.js
 import { auth, db } from '../config/firebase.js';
 import { processarNotificacaoEmail } from '../services/emailService.js';
-import { collection, addDoc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, addDoc, updateDoc, doc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // Variável global para evitar injetar o HTML repetidas vezes
 let isModalInjected = false;
+let modoAtual = 'criar'; // 'criar' ou 'editar'
+let txEditId = null;     // ID da transação se estiver a editar
+let txEditDadosAntigos = null;
 
-export async function abrirModalTransacao() {
+export async function abrirModalTransacao(modo = 'criar', dados = null) {
     const user = auth.currentUser;
     if (!user) return;
+
+    modoAtual = modo;
+    txEditId = dados ? dados.id : null;
+    txEditDadosAntigos = dados;
 
     // 1. Injeta o HTML apenas na primeira vez
     if (!isModalInjected) {
@@ -18,17 +25,19 @@ export async function abrirModalTransacao() {
     }
 
     // 2. Limpar formulário e preparar estado inicial
-    document.getElementById('form-transaction').reset();
+    const form = document.getElementById('form-transaction');
+    form.reset();
     document.getElementById('input-date').valueAsDate = new Date();
+    
     window.txState = {
         type: 'expense',
         recurrence: 'none',
         splitMode: 'ind',
         participants: [{ id: 'me', name: 'Sua Parte', email: user.email, amount: 0 }]
     };
-    atualizarUI(); // Reseta botões visuais
+    atualizarUI();
 
-    // 3. Buscar Contas e Espaços REAIS do Firebase
+    // 3. Buscar Contas, Espaços e Categorias REAIS do Firebase
     const btnSubmit = document.getElementById('btn-submit-tx');
     btnSubmit.innerText = 'A carregar os seus dados...';
     btnSubmit.disabled = true;
@@ -39,12 +48,11 @@ export async function abrirModalTransacao() {
         const snapContas = await getDocs(qContas);
         const selectAcc = document.getElementById('select-account');
         selectAcc.innerHTML = '';
-        snapContas.forEach(doc => {
-            const acc = doc.data();
+        snapContas.forEach(docSnap => {
+            const acc = docSnap.data();
             const icon = acc.type === 'credit' ? '💳' : '🏦';
-            selectAcc.innerHTML += `<option value="${doc.id}" data-type="${acc.type}">${icon} ${acc.name}</option>`;
+            selectAcc.innerHTML += `<option value="${docSnap.id}" data-type="${acc.type}">${icon} ${acc.name}</option>`;
         });
-        // Dispara o evento change para ajustar a interface (Data de Vencimento vs Fatura)
         selectAcc.dispatchEvent(new Event('change')); 
 
         // Busca Espaços
@@ -53,23 +61,96 @@ export async function abrirModalTransacao() {
         const selectSpace = document.getElementById('space-selector');
         selectSpace.innerHTML = '<option value="">Selecione um espaço...</option>';
         window.espacosCarregados = [];
-        snapEspacos.forEach(doc => {
-            const sp = doc.data();
+        snapEspacos.forEach(docSnap => {
+            const sp = docSnap.data();
             if(!sp.isIndividual) {
-                window.espacosCarregados.push({ id: doc.id, ...sp });
-                selectSpace.innerHTML += `<option value="${doc.id}">${sp.icon} ${sp.name}</option>`;
+                window.espacosCarregados.push({ id: docSnap.id, ...sp });
+                selectSpace.innerHTML += `<option value="${docSnap.id}">${sp.icon} ${sp.name}</option>`;
             }
         });
 
-        btnSubmit.innerText = 'Salvar Lançamento';
+        // Carrega Categorias
+        await carregarCategorias(dados ? dados.category : null);
+
+        // 4. Se for MODO EDIÇÃO, preenche os campos com os dados existentes
+        if (modo === 'editar' && dados) {
+            document.getElementById('modal-tx-title').innerText = 'Editar Lançamento';
+            
+            // Define o Tipo (Despesa / Receita)
+            if (dados.type === 'income') {
+                window.txState.type = 'income';
+                document.getElementById('btn-type-income').click();
+            } else {
+                window.txState.type = 'expense';
+                document.getElementById('btn-type-expense').click();
+            }
+
+            document.getElementById('input-desc').value = dados.description || '';
+            document.getElementById('input-amount').value = dados.amount || '';
+            document.getElementById('input-date').value = dados.launchDate || '';
+            
+            if (dados.accountId) selectSpace.value = dados.accountId;
+            if (dados.category) document.getElementById('select-category').value = dados.category;
+            if (dados.spaceId) {
+                selectSpace.value = dados.spaceId;
+                document.getElementById('btn-split-space').click();
+            }
+        } else {
+            document.getElementById('modal-tx-title').innerText = 'Novo Lançamento';
+        }
+
+        btnSubmit.innerText = modo === 'editar' ? 'Atualizar Lançamento' : 'Salvar Lançamento';
         btnSubmit.disabled = false;
     } catch (e) {
         console.error("Erro ao carregar dados:", e);
         btnSubmit.innerText = 'Erro ao carregar';
     }
 
-    // 4. Exibir o Modal
+    // 5. Exibir o Modal
     document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+// ==========================================
+// GESTÃO DE CATEGORIAS
+// ==========================================
+async function carregarCategorias(categoriaSelecionada = null) {
+    const user = auth.currentUser;
+    if (!user) return;
+    
+    const select = document.getElementById('select-category');
+    if (!select) return;
+
+    try {
+        const q = query(collection(db, 'categories'), where('userId', '==', user.uid));
+        const snap = await getDocs(q);
+        
+        let categorias = [];
+        if (snap.empty) {
+            const defaultCats = ['Alimentação', 'Casa', 'Transporte', 'Saúde', 'Lazer', 'Salário', 'Outros'];
+            for (let c of defaultCats) {
+                const docRef = await addDoc(collection(db, 'categories'), { nome: c, userId: user.uid });
+                categorias.push({ id: docRef.id, nome: c });
+            }
+        } else {
+            categorias = snap.docs.map(d => ({ id: d.id, nome: d.data().nome }));
+        }
+
+        categorias.sort((a, b) => a.nome.localeCompare(b.nome));
+
+        select.innerHTML = '';
+        categorias.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.nome;
+            opt.innerText = cat.nome;
+            select.appendChild(opt);
+        });
+
+        if (categoriaSelecionada) {
+            select.value = categoriaSelecionada;
+        }
+    } catch (e) {
+        console.error("Erro ao carregar categorias:", e);
+    }
 }
 
 // ==========================================
@@ -80,7 +161,7 @@ function injetarHTMLDoModal() {
     <div id="modal-overlay" class="fixed inset-0 bg-black/80 z-[105] flex justify-center items-center p-4 hidden animate-fade-in">
         <div class="bg-darkcard w-full max-w-2xl rounded-3xl shadow-2xl border border-darkborder flex flex-col max-h-[95vh]">
             <div class="p-6 border-b border-darkborder flex justify-between items-center bg-slate-800/50 shrink-0 rounded-t-3xl">
-                <h2 class="text-xl font-bold text-white">Novo Lançamento</h2>
+                <h2 id="modal-tx-title" class="text-xl font-bold text-white">Novo Lançamento</h2>
                 <button id="btn-close-modal" class="text-slate-400 hover:text-rose-500 transition-colors"><i class="ph ph-x text-2xl"></i></button>
             </div>
             
@@ -95,11 +176,22 @@ function injetarHTMLDoModal() {
                         <label class="block text-xs font-bold text-slate-400 mb-1">Descrição</label>
                         <input type="text" id="input-desc" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500" placeholder="Ex: Compra do mês" />
                     </div>
-                    <div class="md:col-span-5">
+                    
+                    <div class="md:col-span-6">
                         <label class="block text-xs font-bold text-slate-400 mb-1">Valor Total (R$)</label>
                         <input type="number" id="input-amount" step="0.01" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-xl font-bold text-white focus:outline-none focus:border-indigo-500" placeholder="0,00" />
                     </div>
-                    <div class="md:col-span-7">
+
+                    <!-- CAMPO DE CATEGORIA ADICIONADO -->
+                    <div class="md:col-span-6">
+                        <label class="block text-xs font-bold text-slate-400 mb-1">Categoria</label>
+                        <div class="flex gap-2">
+                            <select id="select-category" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-indigo-500 text-sm"></select>
+                            <button type="button" id="btn-add-category" title="Nova Categoria" class="bg-slate-800 border border-slate-700 rounded-xl px-3.5 text-indigo-400 font-bold hover:bg-slate-700 transition-colors">+</button>
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-12">
                         <label class="block text-xs font-bold text-slate-400 mb-2">Tipo de Registro</label>
                         <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-700 h-[52px]">
                             <button type="button" id="btn-rec-none" class="flex-1 py-1 text-xs font-bold rounded-lg bg-slate-700 text-indigo-400 shadow transition-all">Único</button>
@@ -107,6 +199,7 @@ function injetarHTMLDoModal() {
                             <button type="button" id="btn-rec-inst" class="flex-1 py-1 text-xs font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all">Parcelado</button>
                         </div>
                     </div>
+
                     <div id="box-installments" class="hidden md:col-span-12 grid-cols-2 gap-4 animate-fade-in bg-slate-800/30 p-4 rounded-xl border border-slate-700/50">
                         <div>
                             <label class="block text-xs font-bold text-slate-400 mb-1">Parcela Inicial</label>
@@ -177,6 +270,15 @@ function configurarEventosBase() {
         document.getElementById('modal-overlay').classList.add('hidden');
     });
 
+    // Botão Adicionar Categoria Rápida (+)
+    document.getElementById('btn-add-category').addEventListener('click', async () => {
+        const novaCat = prompt("Digite o nome da nova categoria:");
+        if (novaCat && novaCat.trim() !== '') {
+            await addDoc(collection(db, 'categories'), { nome: novaCat.trim(), userId: user.uid });
+            await carregarCategorias(novaCat.trim());
+        }
+    });
+
     // Eventos UI (Cor Type, Recurrence, Conta)
     document.getElementById('btn-type-expense').addEventListener('click', () => { window.txState.type = 'expense'; atualizarUI(); });
     document.getElementById('btn-type-income').addEventListener('click', () => { window.txState.type = 'income'; atualizarUI(); });
@@ -218,19 +320,17 @@ function configurarEventosBase() {
     document.getElementById('input-amount').addEventListener('input', calcularMatematicaBase);
 
     // ==========================================
-    // GRAVAÇÃO NO FIREBASE (INCLUI GATILHO DE EMAIL)
+    // GRAVAÇÃO NO FIREBASE (CRIAR OU EDITAR)
     // ==========================================
     document.getElementById('form-transaction').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btnSubmit = document.getElementById('btn-submit-tx');
         btnSubmit.disabled = true;
-        btnSubmit.innerText = 'A salvar...';
+        btnSubmit.innerText = modoAtual === 'editar' ? 'A atualizar...' : 'A salvar...';
 
         try {
             const accSelect = document.getElementById('select-account');
             const isCredit = accSelect.options[accSelect.selectedIndex].dataset.type === 'credit';
-            
-            // Reúne todos os e-mails envolvidos para dar permissão de visualização
             const participantEmails = window.txState.participants.map(p => p.email).filter(Boolean);
 
             const txData = {
@@ -239,10 +339,10 @@ function configurarEventosBase() {
                 type: window.txState.type,
                 description: document.getElementById('input-desc').value,
                 amount: parseFloat(document.getElementById('input-amount').value),
+                category: document.getElementById('select-category').value, // Salva a categoria escolhida
                 accountId: accSelect.value,
                 launchDate: document.getElementById('input-date').value,
                 dueDate: isCredit ? '' : document.getElementById('input-due').value,
-                status: 'pending',
                 recurrence: window.txState.recurrence,
                 installmentsTotal: document.getElementById('total-inst').value || null,
                 currentInstallment: document.getElementById('current-inst').value || null,
@@ -252,39 +352,48 @@ function configurarEventosBase() {
                 participantEmails: participantEmails
             };
 
-            // 1. Salva a Transação Principal
-            const docRef = await addDoc(collection(db, 'transactions'), txData);
-            // Novo: Disparar e-mails de rateio
-            if (txData.splitParticipants && txData.splitParticipants.length > 1) {
-                const user = auth.currentUser;
-                txData.splitParticipants.forEach(participante => {
-                    if (participante.email !== user.email) {
-                        processarNotificacaoEmail(participante.email, user.email, 'rateio', { 
-                            descricao: txData.description, 
-                            valor: participante.amount 
-                        });
-                    }
-                });
-            }
+            if (modoAtual === 'criar') {
+                txData.status = 'pending';
+                txData.createdAt = new Date().toISOString();
+                
+                // 1. Salva a Transação Principal
+                await addDoc(collection(db, 'transactions'), txData);
+                
+                // Disparar e-mails de rateio
+                if (txData.splitParticipants && txData.splitParticipants.length > 1) {
+                    txData.splitParticipants.forEach(participante => {
+                        if (participante.email !== user.email) {
+                            processarNotificacaoEmail(participante.email, user.email, 'rateio', { 
+                                descricao: txData.description, 
+                                valor: participante.amount 
+                            });
+                        }
+                    });
+                }
 
-            // 2. [LÓGICA DE PROSPECÇÃO] Gravar na Coleção "mail" para utilizadores avulsos
-            // O Firebase Trigger Email vai detetar isto e enviar um e-mail automaticamente!
-            if (window.txState.splitMode === 'avulso') {
-                for (const p of window.txState.participants) {
-                    if (p.id !== 'me' && p.email) {
-                        await addDoc(collection(db, 'mail'), {
-                            to: p.email,
-                            message: {
-                                subject: `${user.email.split('@')[0]} partilhou uma despesa consigo!`,
-                                html: `
-                                    <h2>Olá!</h2>
-                                    <p>O(a) <b>${user.email.split('@')[0]}</b> registou a despesa <b>"${txData.description}"</b> e a sua parte ficou em <b>R$ ${p.amount.toFixed(2)}</b>.</p>
-                                    <p>Crie a sua conta na plataforma para organizar as suas contas e responder a esta cobrança!</p>
-                                `
-                            }
-                        });
+                // 2. Prospecção avulsa
+                if (window.txState.splitMode === 'avulso') {
+                    for (const p of window.txState.participants) {
+                        if (p.id !== 'me' && p.email) {
+                            await addDoc(collection(db, 'mail'), {
+                                to: p.email,
+                                message: {
+                                    subject: `${user.email.split('@')[0]} partilhou uma despesa consigo!`,
+                                    html: `
+                                        <h2>Olá!</h2>
+                                        <p>O(a) <b>${user.email.split('@')[0]}</b> registou a despesa <b>"${txData.description}"</b> e a sua parte ficou em <b>R$ ${p.amount.toFixed(2)}</b>.</p>
+                                        <p>Crie a sua conta na plataforma para organizar as suas contas e responder a esta cobrança!</p>
+                                    `
+                                }
+                            });
+                        }
                     }
                 }
+            } else if (modoAtual === 'editar' && txEditId) {
+                // Mantém metadados antigos e atualiza os campos editados
+                txData.createdAt = txEditDadosAntigos.createdAt;
+                txData.status = txEditDadosAntigos.status;
+                await updateDoc(doc(db, 'transactions', txEditId), txData);
             }
 
             document.getElementById('modal-overlay').classList.add('hidden');
@@ -293,12 +402,11 @@ function configurarEventosBase() {
             alert('Erro ao salvar o lançamento.');
         } finally {
             btnSubmit.disabled = false;
-            btnSubmit.innerText = 'Salvar Lançamento';
+            btnSubmit.innerText = modoAtual === 'editar' ? 'Atualizar Lançamento' : 'Salvar Lançamento';
         }
     });
 }
 
-// Funções de UI (Iguais ao Sandbox, manipulando a window.txState global)
 function atualizarUI() {
     const s = window.txState;
     document.getElementById('btn-type-expense').className = `flex-1 py-2 text-sm font-bold rounded-lg transition-all ${s.type==='expense' ? 'bg-slate-700 text-rose-500 shadow' : 'text-slate-500 hover:bg-slate-800'}`;
