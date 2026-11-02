@@ -179,6 +179,9 @@ export function renderizarLayout(user) {
     btnEspacos.addEventListener('click', () => { setAtivo(btnEspacos); limparAbaAnterior(); renderizarEspacos(); if(window.innerWidth < 768) { isMobileOpen = false; updateUI(); } });
 
     document.getElementById('btn-add-tx').addEventListener('click', () => { abrirModalTransacao(); });
+
+    // --- O QUE FALTAVA AQUI PARA BAIXO ---
+    // Inicializa a UI e injeta a aba do Dashboard ao entrar
     updateUI();
     renderizarDashboard();
-} 
+}
