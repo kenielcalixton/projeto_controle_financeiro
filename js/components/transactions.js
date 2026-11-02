@@ -218,6 +218,8 @@ function processarDadosTabela(todasTransacoes) {
             if (tx.spaceId) metaHTML += `<span class="text-slate-700 hidden sm:inline">•</span><span class="flex items-center gap-1 text-indigo-400/70"><i class="ph-fill ph-users"></i> Espaço</span>`;
 
             const catNome = tx.category || 'Outros';
+            const catIcon = tx.categoryIcon || '📌';
+            const catColor = tx.categoryColor || '#64748b'; // Cinza se for antigo
             
             containerLista.innerHTML += `
                 <div class="flex flex-col md:grid md:grid-cols-12 md:gap-4 md:items-center p-4 border-b border-darkborder hover:bg-slate-800/50 transition-colors group ${cardClass}">
@@ -238,15 +240,20 @@ function processarDadosTabela(todasTransacoes) {
                         </div>
                         <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">${metaHTML}</div>
                     </div>
+                    
+                    <!-- MAGIA DAS CORES AQUI -->
                     <div class="flex justify-between items-end md:contents">
                         <div class="md:col-span-2">
-                            <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-700 text-slate-300 flex items-center w-max"><i class="ph-fill ph-tag mr-1.5"></i> ${catNome}</span>
+                            <span class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold flex items-center w-max border" style="background-color: ${catColor}15; color: ${catColor}; border-color: ${catColor}30;">
+                                <span class="mr-1.5 text-[12px] leading-none">${catIcon}</span> ${catNome}
+                            </span>
                         </div>
                         <div class="text-right md:col-span-2">
                             <p class="text-sm font-bold ${corValor}">${sinal} R$ ${meuValor.toFixed(2)}</p>
                             ${(tx.splitParticipants && tx.splitParticipants.length > 1) ? `<p class="text-[10px] text-slate-500 font-medium mt-1">Total: R$ ${totalOriginal.toFixed(2)}</p>` : ''}
                         </div>
                     </div>
+                    
                     <div class="hidden md:flex justify-end space-x-2 md:col-span-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button class="btn-edit text-slate-500 hover:text-indigo-400" data-id="${tx.id}"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
                         <button class="btn-delete text-slate-500 hover:text-rose-400" data-id="${tx.id}"><i class="ph ph-trash text-lg pointer-events-none"></i></button>

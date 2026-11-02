@@ -1,13 +1,13 @@
 // js/components/transactionModal.js
 import { auth, db } from '../config/firebase.js';
 import { processarNotificacaoEmail } from '../services/emailService.js';
-import { collection, addDoc, updateDoc, doc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-// Variável global para evitar injetar o HTML repetidas vezes
 let isModalInjected = false;
-let modoAtual = 'criar'; // 'criar' ou 'editar'
-let txEditId = null;     // ID da transação se estiver a editar
+let modoAtual = 'criar'; 
+let txEditId = null;     
 let txEditDadosAntigos = null;
+let espacosCarregados = [];
 
 export async function abrirModalTransacao(modo = 'criar', dados = null) {
     const user = auth.currentUser;
@@ -17,14 +17,13 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
     txEditId = dados ? dados.id : null;
     txEditDadosAntigos = dados;
 
-    // 1. Injeta o HTML apenas na primeira vez
     if (!isModalInjected) {
         injetarHTMLDoModal();
         configurarEventosBase();
+        configurarEventosGestorCategorias(); // Novo gestor!
         isModalInjected = true;
     }
 
-    // 2. Limpar formulário e preparar estado inicial
     const form = document.getElementById('form-transaction');
     form.reset();
     document.getElementById('input-date').valueAsDate = new Date();
@@ -37,13 +36,11 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
     };
     atualizarUI();
 
-    // 3. Buscar Contas, Espaços e Categorias REAIS do Firebase
     const btnSubmit = document.getElementById('btn-submit-tx');
     btnSubmit.innerText = 'A carregar os seus dados...';
     btnSubmit.disabled = true;
 
     try {
-        // Busca Contas
         const qContas = query(collection(db, 'accounts'), where('userId', '==', user.uid));
         const snapContas = await getDocs(qContas);
         const selectAcc = document.getElementById('select-account');
@@ -55,11 +52,10 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
         });
         selectAcc.dispatchEvent(new Event('change')); 
 
-        // Busca Espaços
         const qEspacos = query(collection(db, 'spaces'), where('participantEmails', 'array-contains', user.email));
         const snapEspacos = await getDocs(qEspacos);
         const selectSpace = document.getElementById('space-selector');
-        selectSpace.innerHTML = '<option value="">Selecione um espaço...</option>';
+        selectSpace.innerHTML = '<option value="">Nenhum (Individual)</option>';
         window.espacosCarregados = [];
         snapEspacos.forEach(docSnap => {
             const sp = docSnap.data();
@@ -69,14 +65,10 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
             }
         });
 
-        // Carrega Categorias
         await carregarCategorias(dados ? dados.category : null);
 
-        // 4. Se for MODO EDIÇÃO, preenche os campos com os dados existentes
         if (modo === 'editar' && dados) {
             document.getElementById('modal-tx-title').innerText = 'Editar Lançamento';
-            
-            // Define o Tipo (Despesa / Receita)
             if (dados.type === 'income') {
                 window.txState.type = 'income';
                 document.getElementById('btn-type-income').click();
@@ -84,12 +76,10 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
                 window.txState.type = 'expense';
                 document.getElementById('btn-type-expense').click();
             }
-
             document.getElementById('input-desc').value = dados.description || '';
             document.getElementById('input-amount').value = dados.amount || '';
             document.getElementById('input-date').value = dados.launchDate || '';
-            
-            if (dados.accountId) selectSpace.value = dados.accountId;
+            if (dados.accountId) selectAcc.value = dados.accountId;
             if (dados.category) document.getElementById('select-category').value = dados.category;
             if (dados.spaceId) {
                 selectSpace.value = dados.spaceId;
@@ -106,51 +96,106 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
         btnSubmit.innerText = 'Erro ao carregar';
     }
 
-    // 5. Exibir o Modal
     document.getElementById('modal-overlay').classList.remove('hidden');
 }
 
 // ==========================================
-// GESTÃO DE CATEGORIAS
+// GESTÃO DE CATEGORIAS (NOVO)
 // ==========================================
 async function carregarCategorias(categoriaSelecionada = null) {
     const user = auth.currentUser;
     if (!user) return;
-    
     const select = document.getElementById('select-category');
-    if (!select) return;
-
+    
     try {
         const q = query(collection(db, 'categories'), where('userId', '==', user.uid));
         const snap = await getDocs(q);
         
-        let categorias = [];
+        window.categoriasCarregadas = [];
+        
         if (snap.empty) {
-            const defaultCats = ['Alimentação', 'Casa', 'Transporte', 'Saúde', 'Lazer', 'Salário', 'Outros'];
+            // Se não houver categorias, criamos com ícones e cores padrão!
+            const defaultCats = [
+                { nome: 'Alimentação', icon: '🍔', color: '#f97316' },
+                { nome: 'Casa', icon: '🏠', color: '#3b82f6' },
+                { nome: 'Transporte', icon: '🚗', color: '#0ea5e9' },
+                { nome: 'Lazer', icon: '🎉', color: '#a855f7' },
+                { nome: 'Saúde', icon: '💊', color: '#ef4444' },
+                { nome: 'Salário', icon: '💰', color: '#10b981' }
+            ];
             for (let c of defaultCats) {
-                const docRef = await addDoc(collection(db, 'categories'), { nome: c, userId: user.uid });
-                categorias.push({ id: docRef.id, nome: c });
+                const docRef = await addDoc(collection(db, 'categories'), { ...c, userId: user.uid });
+                window.categoriasCarregadas.push({ id: docRef.id, ...c });
             }
         } else {
-            categorias = snap.docs.map(d => ({ id: d.id, nome: d.data().nome }));
+            window.categoriasCarregadas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         }
 
-        categorias.sort((a, b) => a.nome.localeCompare(b.nome));
+        window.categoriasCarregadas.sort((a, b) => a.nome.localeCompare(b.nome));
 
-        select.innerHTML = '';
-        categorias.forEach(cat => {
-            const opt = document.createElement('option');
-            opt.value = cat.nome;
-            opt.innerText = cat.nome;
-            select.appendChild(opt);
-        });
-
-        if (categoriaSelecionada) {
-            select.value = categoriaSelecionada;
+        // Atualizar o Select principal
+        if (select) {
+            select.innerHTML = '';
+            window.categoriasCarregadas.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.nome;
+                opt.innerText = `${cat.icon || '📌'} ${cat.nome}`;
+                select.appendChild(opt);
+            });
+            if (categoriaSelecionada) select.value = categoriaSelecionada;
         }
+
+        // Atualizar a lista dentro do Gestor de Categorias
+        renderizarListaCategoriasNoGestor();
+        
     } catch (e) {
         console.error("Erro ao carregar categorias:", e);
     }
+}
+
+function renderizarListaCategoriasNoGestor() {
+    const lista = document.getElementById('cat-manager-list');
+    if (!lista) return;
+    lista.innerHTML = '';
+    
+    window.categoriasCarregadas.forEach(cat => {
+        const div = document.createElement('div');
+        div.className = "flex justify-between items-center bg-slate-900 border border-slate-700 p-3 rounded-xl";
+        div.innerHTML = `
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-lg" style="background-color: ${cat.color}20; color: ${cat.color};">${cat.icon || '📌'}</div>
+                <span class="text-sm font-bold text-slate-300">${cat.nome}</span>
+            </div>
+            <div class="flex gap-2">
+                <button type="button" class="btn-edit-cat text-slate-500 hover:text-indigo-400 p-1" data-id="${cat.id}"><i class="ph ph-pencil-simple pointer-events-none text-lg"></i></button>
+                <button type="button" class="btn-del-cat text-slate-500 hover:text-rose-400 p-1" data-id="${cat.id}"><i class="ph ph-trash pointer-events-none text-lg"></i></button>
+            </div>
+        `;
+        lista.appendChild(div);
+    });
+
+    document.querySelectorAll('.btn-edit-cat').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const cat = window.categoriasCarregadas.find(c => c.id === e.target.dataset.id);
+            if (cat) {
+                document.getElementById('cat-id').value = cat.id;
+                document.getElementById('cat-name').value = cat.nome;
+                document.getElementById('cat-color').value = cat.color || '#64748b';
+                window.catIconSelecionado = cat.icon || '📌';
+                document.getElementById('cat-btn-icon').innerText = window.catIconSelecionado;
+                document.getElementById('btn-save-cat').innerText = 'Atualizar';
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-del-cat').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            if(confirm('Apagar esta categoria?')) {
+                await deleteDoc(doc(db, 'categories', e.target.dataset.id));
+                await carregarCategorias();
+            }
+        });
+    });
 }
 
 // ==========================================
@@ -158,6 +203,7 @@ async function carregarCategorias(categoriaSelecionada = null) {
 // ==========================================
 function injetarHTMLDoModal() {
     const modalHTML = `
+    <!-- MODAL PRINCIPAL DE TRANSAÇÕES -->
     <div id="modal-overlay" class="fixed inset-0 bg-black/80 z-[105] flex justify-center items-center p-4 hidden animate-fade-in">
         <div class="bg-darkcard w-full max-w-2xl rounded-3xl shadow-2xl border border-darkborder flex flex-col max-h-[95vh]">
             <div class="p-6 border-b border-darkborder flex justify-between items-center bg-slate-800/50 shrink-0 rounded-t-3xl">
@@ -182,12 +228,11 @@ function injetarHTMLDoModal() {
                         <input type="number" id="input-amount" step="0.01" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-xl font-bold text-white focus:outline-none focus:border-indigo-500" placeholder="0,00" />
                     </div>
 
-                    <!-- CAMPO DE CATEGORIA ADICIONADO -->
                     <div class="md:col-span-6">
                         <label class="block text-xs font-bold text-slate-400 mb-1">Categoria</label>
                         <div class="flex gap-2">
                             <select id="select-category" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-indigo-500 text-sm"></select>
-                            <button type="button" id="btn-add-category" title="Nova Categoria" class="bg-slate-800 border border-slate-700 rounded-xl px-3.5 text-indigo-400 font-bold hover:bg-slate-700 transition-colors">+</button>
+                            <button type="button" id="btn-manage-categories" title="Gerir Categorias" class="bg-slate-800 border border-slate-700 rounded-xl px-3 text-indigo-400 hover:bg-slate-700 transition-colors"><i class="ph ph-gear text-xl"></i></button>
                         </div>
                     </div>
 
@@ -199,7 +244,8 @@ function injetarHTMLDoModal() {
                             <button type="button" id="btn-rec-inst" class="flex-1 py-1 text-xs font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all">Parcelado</button>
                         </div>
                     </div>
-
+                    
+                    <!-- Parcelas -->
                     <div id="box-installments" class="hidden md:col-span-12 grid-cols-2 gap-4 animate-fade-in bg-slate-800/30 p-4 rounded-xl border border-slate-700/50">
                         <div>
                             <label class="block text-xs font-bold text-slate-400 mb-1">Parcela Inicial</label>
@@ -228,7 +274,7 @@ function injetarHTMLDoModal() {
                         </div>
                         <div id="box-credit-info" class="hidden flex items-center text-sm text-purple-300 bg-purple-900/30 p-3 rounded-lg border border-purple-500/30 h-full">
                             <i class="ph-fill ph-magic-wand text-2xl mr-3 text-purple-400"></i> 
-                            <div><p class="font-bold text-purple-400">Lançamento em Cartão</p><p class="text-[10px] opacity-80">O sistema calculará a fatura automaticamente.</p></div>
+                            <div><p class="font-bold text-purple-400">Lançamento em Cartão</p><p class="text-[10px] opacity-80">Fatura automática.</p></div>
                         </div>
                     </div>
                 </div>
@@ -260,29 +306,142 @@ function injetarHTMLDoModal() {
                 </div>
             </form>
         </div>
+    </div>
+
+    <!-- MODAL GESTOR DE CATEGORIAS (SOBREPOSTO) -->
+    <div id="modal-category-manager" class="fixed inset-0 bg-black/90 z-[120] flex justify-center items-center p-4 hidden animate-fade-in">
+        <div class="bg-darkcard w-full max-w-md rounded-3xl shadow-2xl border border-darkborder flex flex-col max-h-[90vh]">
+            <div class="p-5 border-b border-darkborder flex justify-between items-center bg-slate-800/50 rounded-t-3xl">
+                <h2 class="text-lg font-bold text-white">Gestor de Categorias</h2>
+                <button id="btn-close-cat-manager" class="text-slate-400 hover:text-rose-500"><i class="ph ph-x text-xl"></i></button>
+            </div>
+            
+            <div class="p-5 overflow-y-auto space-y-6">
+                <!-- Formulário de Nova/Edição -->
+                <form id="form-category" class="bg-slate-800/30 p-4 rounded-xl border border-slate-700/50 space-y-4">
+                    <input type="hidden" id="cat-id" />
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nome</label>
+                        <input type="text" id="cat-name" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none" placeholder="Ex: Pets" />
+                    </div>
+                    
+                    <div class="flex gap-4">
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Cor</label>
+                            <input type="color" id="cat-color" value="#10b981" class="w-full h-10 bg-slate-900 border border-slate-700 rounded-lg p-1 cursor-pointer" />
+                        </div>
+                        <div class="flex-1 relative">
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Ícone</label>
+                            <button type="button" id="cat-btn-icon" class="w-full h-10 bg-slate-900 border border-slate-700 rounded-lg flex items-center justify-center text-xl hover:border-indigo-500">📌</button>
+                            
+                            <!-- Grid de Ícones Oculto -->
+                            <div id="cat-icon-selector" class="hidden absolute top-12 right-0 bg-slate-800 border border-slate-700 p-2 rounded-xl shadow-xl w-[200px] z-[130]">
+                                <div class="grid grid-cols-5 gap-1" id="cat-icon-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" id="btn-reset-cat" class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-300">Limpar</button>
+                        <button type="submit" id="btn-save-cat" class="px-4 py-1.5 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-500">Adicionar</button>
+                    </div>
+                </form>
+
+                <!-- Lista de Categorias -->
+                <div>
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">As suas Categorias</h3>
+                    <div id="cat-manager-list" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
     </div>`;
     document.body.insertAdjacentHTML('beforeend', modalHTML);
 }
 
-function configurarEventosBase() {
+function configurarEventosGestorCategorias() {
     const user = auth.currentUser;
-    document.getElementById('btn-close-modal').addEventListener('click', () => {
-        document.getElementById('modal-overlay').classList.add('hidden');
+    const modalCat = document.getElementById('modal-category-manager');
+    const formCat = document.getElementById('form-category');
+    const iconBtn = document.getElementById('cat-btn-icon');
+    const iconSelector = document.getElementById('cat-icon-selector');
+    const iconGrid = document.getElementById('cat-icon-grid');
+
+    // Abre o Gestor
+    document.getElementById('btn-manage-categories').addEventListener('click', () => {
+        modalCat.classList.remove('hidden');
+        document.getElementById('btn-reset-cat').click(); // Limpa o form
+    });
+    
+    // Fecha o Gestor
+    document.getElementById('btn-close-cat-manager').addEventListener('click', () => modalCat.classList.add('hidden'));
+    
+    // Popular a grelha de ícones
+    const listaIcones = ['🍔', '🏠', '🚗', '💊', '🎉', '💰', '🐶', '✈️', '🛒', '🎓', '🏥', '🛠️', '📱', '🎮', '⚽', '💡', '🔑', '🎨', '🔥', '📌'];
+    window.catIconSelecionado = '📌';
+    
+    listaIcones.forEach(icone => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-slate-700 transition-colors`;
+        btn.innerText = icone;
+        btn.addEventListener('click', () => {
+            window.catIconSelecionado = icone;
+            iconBtn.innerText = icone;
+            iconSelector.classList.add('hidden');
+        });
+        iconGrid.appendChild(btn);
     });
 
-    // Botão Adicionar Categoria Rápida (+)
-    document.getElementById('btn-add-category').addEventListener('click', async () => {
-        const novaCat = prompt("Digite o nome da nova categoria:");
-        if (novaCat && novaCat.trim() !== '') {
-            await addDoc(collection(db, 'categories'), { nome: novaCat.trim(), userId: user.uid });
-            await carregarCategorias(novaCat.trim());
+    iconBtn.addEventListener('click', (e) => { e.stopPropagation(); iconSelector.classList.toggle('hidden'); });
+    document.addEventListener('click', (e) => { if (!iconSelector.contains(e.target) && !iconBtn.contains(e.target)) iconSelector.classList.add('hidden'); });
+
+    // Limpar Form
+    document.getElementById('btn-reset-cat').addEventListener('click', () => {
+        document.getElementById('cat-id').value = '';
+        document.getElementById('cat-name').value = '';
+        document.getElementById('cat-color').value = '#64748b';
+        window.catIconSelecionado = '📌';
+        iconBtn.innerText = '📌';
+        document.getElementById('btn-save-cat').innerText = 'Adicionar';
+    });
+
+    // Salvar/Editar Categoria
+    formCat.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('cat-id').value;
+        const nome = document.getElementById('cat-name').value.trim();
+        const color = document.getElementById('cat-color').value;
+        const icon = window.catIconSelecionado;
+        const btnSave = document.getElementById('btn-save-cat');
+        
+        btnSave.disabled = true;
+        btnSave.innerText = 'A guardar...';
+
+        try {
+            if (id) {
+                await updateDoc(doc(db, 'categories', id), { nome, color, icon });
+            } else {
+                await addDoc(collection(db, 'categories'), { nome, color, icon, userId: user.uid });
+            }
+            document.getElementById('btn-reset-cat').click();
+            await carregarCategorias(nome); // Recarrega e seleciona a nova
+        } catch(err) {
+            console.error(err);
+        } finally {
+            btnSave.disabled = false;
+            btnSave.innerText = 'Adicionar';
         }
     });
+}
 
-    // Eventos UI (Cor Type, Recurrence, Conta)
+function configurarEventosBase() {
+    const user = auth.currentUser;
+    document.getElementById('btn-close-modal').addEventListener('click', () => document.getElementById('modal-overlay').classList.add('hidden'));
+
+    // Eventos UI
     document.getElementById('btn-type-expense').addEventListener('click', () => { window.txState.type = 'expense'; atualizarUI(); });
     document.getElementById('btn-type-income').addEventListener('click', () => { window.txState.type = 'income'; atualizarUI(); });
-    
     document.getElementById('btn-rec-none').addEventListener('click', () => { window.txState.recurrence = 'none'; atualizarUI(); });
     document.getElementById('btn-rec-fixed').addEventListener('click', () => { window.txState.recurrence = 'fixed'; atualizarUI(); });
     document.getElementById('btn-rec-inst').addEventListener('click', () => { window.txState.recurrence = 'installments'; atualizarUI(); });
@@ -293,7 +452,6 @@ function configurarEventosBase() {
         document.getElementById('box-credit-info').classList.toggle('hidden', type !== 'credit');
     });
 
-    // Eventos de Rateio
     document.getElementById('btn-split-ind').addEventListener('click', () => { window.txState.splitMode = 'ind'; setupParticipants(); });
     document.getElementById('btn-split-space').addEventListener('click', () => { window.txState.splitMode = 'space'; setupParticipants(); });
     document.getElementById('btn-split-avulso').addEventListener('click', () => { window.txState.splitMode = 'avulso'; setupParticipants(); });
@@ -320,7 +478,7 @@ function configurarEventosBase() {
     document.getElementById('input-amount').addEventListener('input', calcularMatematicaBase);
 
     // ==========================================
-    // GRAVAÇÃO NO FIREBASE (CRIAR OU EDITAR)
+    // GRAVAÇÃO NO FIREBASE (COM COR E ÍCONE)
     // ==========================================
     document.getElementById('form-transaction').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -333,13 +491,22 @@ function configurarEventosBase() {
             const isCredit = accSelect.options[accSelect.selectedIndex].dataset.type === 'credit';
             const participantEmails = window.txState.participants.map(p => p.email).filter(Boolean);
 
+            // Encontrar os metadados da categoria para guardar na transação!
+            const catNome = document.getElementById('select-category').value;
+            const catSelecionada = window.categoriasCarregadas.find(c => c.nome === catNome);
+
             const txData = {
                 creatorId: user.uid,
                 creatorEmail: user.email,
                 type: window.txState.type,
                 description: document.getElementById('input-desc').value,
                 amount: parseFloat(document.getElementById('input-amount').value),
-                category: document.getElementById('select-category').value, // Salva a categoria escolhida
+                
+                // DESNORMALIZAÇÃO: Guarda nome, ícone e cor!
+                category: catNome, 
+                categoryIcon: catSelecionada ? catSelecionada.icon : '📌',
+                categoryColor: catSelecionada ? catSelecionada.color : '#64748b',
+                
                 accountId: accSelect.value,
                 launchDate: document.getElementById('input-date').value,
                 dueDate: isCredit ? '' : document.getElementById('input-due').value,
@@ -356,22 +523,16 @@ function configurarEventosBase() {
                 txData.status = 'pending';
                 txData.createdAt = new Date().toISOString();
                 
-                // 1. Salva a Transação Principal
                 await addDoc(collection(db, 'transactions'), txData);
                 
-                // Disparar e-mails de rateio
                 if (txData.splitParticipants && txData.splitParticipants.length > 1) {
                     txData.splitParticipants.forEach(participante => {
                         if (participante.email !== user.email) {
-                            processarNotificacaoEmail(participante.email, user.email, 'rateio', { 
-                                descricao: txData.description, 
-                                valor: participante.amount 
-                            });
+                            processarNotificacaoEmail(participante.email, user.email, 'rateio', { descricao: txData.description, valor: participante.amount });
                         }
                     });
                 }
 
-                // 2. Prospecção avulsa
                 if (window.txState.splitMode === 'avulso') {
                     for (const p of window.txState.participants) {
                         if (p.id !== 'me' && p.email) {
@@ -379,18 +540,13 @@ function configurarEventosBase() {
                                 to: p.email,
                                 message: {
                                     subject: `${user.email.split('@')[0]} partilhou uma despesa consigo!`,
-                                    html: `
-                                        <h2>Olá!</h2>
-                                        <p>O(a) <b>${user.email.split('@')[0]}</b> registou a despesa <b>"${txData.description}"</b> e a sua parte ficou em <b>R$ ${p.amount.toFixed(2)}</b>.</p>
-                                        <p>Crie a sua conta na plataforma para organizar as suas contas e responder a esta cobrança!</p>
-                                    `
+                                    html: `<h2>Olá!</h2><p>A sua parte ficou em <b>R$ ${p.amount.toFixed(2)}</b>.</p>`
                                 }
                             });
                         }
                     }
                 }
             } else if (modoAtual === 'editar' && txEditId) {
-                // Mantém metadados antigos e atualiza os campos editados
                 txData.createdAt = txEditDadosAntigos.createdAt;
                 txData.status = txEditDadosAntigos.status;
                 await updateDoc(doc(db, 'transactions', txEditId), txData);
