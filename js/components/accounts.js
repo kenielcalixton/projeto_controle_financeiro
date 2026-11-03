@@ -1,5 +1,6 @@
 // js/components/accounts.js
 import { auth, db } from '../config/firebase.js';
+import { abrirDetalheConta } from './accountDetails.js';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 let unsubscribeContas = null;
