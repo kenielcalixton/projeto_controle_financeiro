@@ -70,7 +70,7 @@ export function renderizarLancamentos() {
                 </form>
             </div>
 
-            <!-- NOVO: MODAL GLOBAL DE PAGAMENTO DE FATURA -->
+            <!-- MODAL GLOBAL DE PAGAMENTO DE FATURA -->
             <div id="modal-pagar-fatura-global" class="fixed inset-0 bg-black/90 z-[120] flex items-center justify-center p-4 hidden animate-fade-in">
                 <form id="form-pagar-fatura-global" class="bg-darkcard w-full max-w-sm rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col">
                     <div class="flex justify-between items-center mb-4">
@@ -142,7 +142,8 @@ export function renderizarLancamentos() {
         e.preventDefault();
         const btnSave = document.getElementById('btn-save-efetivar');
         const originalText = btnSave.innerText;
-        btnSave.disabled = true; btnSave.innerText = 'A processar...';
+        btnSave.disabled = true;
+        btnSave.innerText = 'A processar...';
         try {
             const id = document.getElementById('efetivar-id').value;
             const dataPagamento = document.getElementById('efetivar-data').value;
@@ -187,7 +188,8 @@ export function renderizarLancamentos() {
     document.getElementById('form-pagar-fatura-global').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btnSubmit = document.getElementById('btn-submit-fatura-global');
-        btnSubmit.disabled = true; btnSubmit.innerText = 'A processar...';
+        btnSubmit.disabled = true;
+        btnSubmit.innerText = 'A processar...';
 
         try {
             const dataPagamento = document.getElementById('fatura-global-data').value;
@@ -516,7 +518,8 @@ function processarDadosTabela(todasTransacoes) {
         });
     }
 
-    // Botões Efetivar Conta Normal e Exclusões (MANTIDOS IGUAIS AO SEU)
+    // EVENTOS DE CLIQUE DOS BOTÕES (INCLUINDO A FATURA GLOBAL CORRIGIDA)
+    
     document.querySelectorAll('.btn-quick-efetivar').forEach(btn => btn.addEventListener('click', (e) => {
         const id = e.currentTarget.dataset.id;
         const projdate = e.currentTarget.dataset.projdate || ''; 
@@ -528,6 +531,30 @@ function processarDadosTabela(todasTransacoes) {
         
         document.getElementById('modal-efetivar-title').innerText = txOriginal.type === 'income' ? 'Confirmar Recebimento' : 'Confirmar Pagamento';
         document.getElementById('modal-efetivar').classList.remove('hidden');
+    }));
+
+    // NOVO: Evento para abrir o Modal de Pagamento da Fatura Global 
+    document.querySelectorAll('.btn-quick-efetivar-fatura').forEach(btn => btn.addEventListener('click', async (e) => {
+        const accId = e.currentTarget.dataset.acc;
+        const fatura = window.faturasFechadasGlobais[accId];
+        
+        const qContas = query(collection(db, 'accounts'), where('userId', '==', user.uid), where('type', '!=', 'credit'));
+        const snapContas = await getDocs(qContas);
+        const selectAcc = document.getElementById('fatura-global-conta-debito');
+        selectAcc.innerHTML = '';
+        
+        if (snapContas.empty) return alert("Precisa cadastrar uma Conta Corrente ou Carteira para pagar a fatura!");
+        
+        snapContas.forEach(docSnap => {
+            selectAcc.innerHTML += `<option value="${docSnap.id}">🏦 ${docSnap.data().name}</option>`;
+        });
+
+        document.getElementById('fatura-global-acc-id').value = accId;
+        document.getElementById('fatura-global-qtd').innerText = fatura.txsPendentes.length;
+        document.getElementById('fatura-global-valor').innerText = `R$ ${fatura.pendingAmount.toFixed(2)}`;
+        document.getElementById('fatura-global-data').valueAsDate = new Date();
+        
+        document.getElementById('modal-pagar-fatura-global').classList.remove('hidden');
     }));
 
     document.querySelectorAll('.btn-edit').forEach(btn => btn.addEventListener('click', (e) => {
@@ -576,8 +603,7 @@ function processarDadosTabela(todasTransacoes) {
     `;
 }
 
-// O Resto das funções auxiliares de recorrência omitidas para poupar espaço, 
-// MAS COPIE EXATAMENTE O FINAL DO SEU FICHEIRO ORIGINAL AQUI!
+// LÓGICA DO MODAL DE ESCOLHA DE RECORRÊNCIA MANTIDA
 export function limparListenerLancamentosGlobal() {} 
 function abrirModalEscolhaRecorrencia(acao, txOriginal, projDate = null) {
     const modal = document.getElementById('modal-recorrencia'); modal.classList.remove('hidden');

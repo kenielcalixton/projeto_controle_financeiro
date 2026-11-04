@@ -1,6 +1,7 @@
 // js/components/accountDetails.js
 import { auth, db } from '../config/firebase.js';
-import { collection, query, where, onSnapshot, doc, updateDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, where, onSnapshot, doc, updateDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { abrirModalTransacao } from './transactionModal.js';
 
 let unsubscribeAccountTx = null;
 let dataReferenciaFatura = new Date();
@@ -90,6 +91,27 @@ export function abrirDetalheConta(conta) {
                     </div>
                 </form>
             </div>
+
+            <!-- MODAL DE ESCOLHA DE RECORRÊNCIA PARA O EXTRATO -->
+            <div id="modal-recorrencia" class="fixed inset-0 bg-black/90 z-[120] flex items-center justify-center p-4 hidden animate-fade-in">
+                <div class="bg-darkcard w-full max-w-sm rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col text-center">
+                    <div class="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 border border-indigo-500/20"><i class="ph-fill ph-arrows-clockwise"></i></div>
+                    <h2 class="text-lg font-bold text-white mb-2">Lançamento Recorrente</h2>
+                    <p class="text-sm text-slate-400 mb-6">Como deseja aplicar esta alteração?</p>
+                    <div class="space-y-3">
+                        <button id="btn-rec-single" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-colors flex flex-col items-center">
+                            <span>Somente este</span><span class="text-[10px] text-slate-400 font-normal mt-0.5">As outras datas não serão afetadas.</span>
+                        </button>
+                        <button id="btn-rec-forward" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-colors flex flex-col items-center">
+                            <span>Este e os seguintes</span><span class="text-[10px] text-slate-400 font-normal mt-0.5">Os anteriores mantêm-se iguais.</span>
+                        </button>
+                        <button id="btn-rec-all" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition-colors flex flex-col items-center">
+                            <span>Todos</span><span class="text-[10px] text-indigo-200 font-normal mt-0.5">Altera todo o histórico.</span>
+                        </button>
+                    </div>
+                    <button id="btn-cancel-rec" class="mt-6 text-sm text-slate-500 hover:text-slate-300 font-bold">Cancelar</button>
+                </div>
+            </div>
         </div>
     `;
 
@@ -116,7 +138,7 @@ export function abrirDetalheConta(conta) {
 
         try {
             const dataPagamento = document.getElementById('fatura-interno-data').value;
-            const contaDebitoId = document.getElementById('fatura-interno-conta').value;
+            const contaDebitoId = document.getElementById('fatura-interno-conta').value; // BUGS DE ID CORRIGIDOS
             const keyMes = `${dataReferenciaFatura.getFullYear()}-${String(dataReferenciaFatura.getMonth() + 1).padStart(2, '0')}`;
             
             const promises = transacoesPendentesFatura.map(async (tx) => {
@@ -200,11 +222,10 @@ function processarDadosConta(todasTransacoes, conta, user) {
                 if (diff >= 0 && (startInst + diff) <= totalInst) { fallsInCurrent = true; parcelaFinal = startInst + diff; }
             }
 
-            if (!fallsInCurrent) return; // Só mostra o que cai na fatura selecionada no ecrã!
+            if (!fallsInCurrent) return; 
             isProjection = true;
             
         } else {
-            // Conta Corrente
             const diff = (anoRef - txAno) * 12 + (mesRef - txMes);
             if (diff < 0) return;
 
@@ -239,7 +260,6 @@ function processarDadosConta(todasTransacoes, conta, user) {
 
     transacoesDoMes.sort((a, b) => new Date(b.launchDate) - new Date(a.launchDate));
 
-    // Renderizar
     const container = document.getElementById('lista-tx-conta');
     const summaryCards = document.getElementById('account-summary-cards');
     
@@ -273,8 +293,14 @@ function processarDadosConta(todasTransacoes, conta, user) {
                 ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Efetivado</span>`
                 : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-500 border border-amber-500/30">Pendente</span>`;
 
+            // NOVO: Adicionado botões de Ações (Editar e Apagar)
+            const acoesHTML = `
+                <button class="btn-edit-acc text-slate-500 hover:text-indigo-400" data-id="${tx.id}" data-isproj="${tx.isProjection}" data-projdate="${tx.launchDate}"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
+                <button class="btn-delete-acc text-slate-500 hover:text-rose-400" data-id="${tx.id}" data-isproj="${tx.isProjection}" data-projdate="${tx.launchDate}"><i class="ph ph-trash text-lg pointer-events-none"></i></button>
+            `;
+
             htmlLista += `
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:bg-slate-800/50 transition-colors rounded-xl gap-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:bg-slate-800/50 transition-colors rounded-xl gap-4 group">
                     <div class="flex items-center gap-4">
                         <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 border" style="background-color: ${catColor}15; color: ${catColor}; border-color: ${catColor}30;">${catIcon}</div>
                         <div>
@@ -286,8 +312,16 @@ function processarDadosConta(todasTransacoes, conta, user) {
                         </div>
                     </div>
                     <div class="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center">
-                        <div class="flex items-center gap-3 sm:hidden mb-1">${statusHtml}</div>
-                        <div class="text-right"><p class="text-sm font-bold ${tx.type === 'expense' ? 'text-rose-500' : 'text-emerald-500'}">${tx.type === 'expense' ? '-' : '+'} R$ ${meuValor.toFixed(2)}</p><div class="hidden sm:block mt-1">${statusHtml}</div></div>
+                        <div class="flex items-center gap-3 sm:hidden mb-1">${statusHtml} <div class="flex space-x-3 ml-2">${acoesHTML}</div></div>
+                        <div class="text-right">
+                            <p class="text-sm font-bold ${tx.type === 'expense' ? 'text-rose-500' : 'text-emerald-500'}">${tx.type === 'expense' ? '-' : '+'} R$ ${meuValor.toFixed(2)}</p>
+                            <div class="hidden sm:flex items-center justify-end mt-1 space-x-3">
+                                ${statusHtml}
+                                <div class="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2 border-l border-slate-700 pl-3 ml-2">
+                                    ${acoesHTML}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -331,9 +365,35 @@ function processarDadosConta(todasTransacoes, conta, user) {
         </div>
     `;
 
+    // LÓGICA DE CLIQUE: Editar e Excluir
+    document.querySelectorAll('.btn-edit-acc').forEach(btn => btn.addEventListener('click', (e) => {
+        const btnData = e.currentTarget.dataset;
+        const tx = transacoesDoMes.find(t => t.id === btnData.id);
+        if (!tx) return;
+        if ((tx.recurrence === 'fixed' || tx.recurrence === 'installments' || conta.type === 'credit') && btnData.isproj === 'true') {
+            abrirModalEscolhaRecorrencia('editar', tx, btnData.projdate);
+        } else {
+            abrirModalTransacao('editar', tx);
+        }
+    }));
+
+    document.querySelectorAll('.btn-delete-acc').forEach(btn => btn.addEventListener('click', (e) => {
+        const btnData = e.currentTarget.dataset;
+        const tx = transacoesDoMes.find(t => t.id === btnData.id);
+        if (!tx) return;
+        if ((tx.recurrence === 'fixed' || tx.recurrence === 'installments' || conta.type === 'credit') && btnData.isproj === 'true') {
+            abrirModalEscolhaRecorrencia('apagar', tx, btnData.projdate);
+        } else {
+            if(confirm('Tem a certeza que deseja excluir este lançamento?')) deleteDoc(doc(db, 'transactions', tx.id));
+        }
+    }));
+
+    // BIND DO BOTÃO DE PAGAMENTO CORRIGIDO (Para não duplicar listeners)
     const btnAbrirModal = document.getElementById('btn-abrir-modal-fatura');
     if (btnAbrirModal) {
-        btnAbrirModal.addEventListener('click', async () => {
+        const newBtn = btnAbrirModal.cloneNode(true);
+        btnAbrirModal.replaceWith(newBtn);
+        newBtn.addEventListener('click', async () => {
             const qContas = query(collection(db, 'accounts'), where('userId', '==', user.uid), where('type', '!=', 'credit'));
             const snapContas = await getDocs(qContas);
             const selectAcc = document.getElementById('fatura-interno-conta');
@@ -349,4 +409,35 @@ function processarDadosConta(todasTransacoes, conta, user) {
             document.getElementById('modal-pagar-fatura-interno').classList.remove('hidden');
         });
     }
+}
+
+function abrirModalEscolhaRecorrencia(acao, txOriginal, projDate = null) {
+    const modal = document.getElementById('modal-recorrencia'); modal.classList.remove('hidden');
+    const btnSingle = document.getElementById('btn-rec-single'); const btnForward = document.getElementById('btn-rec-forward'); const btnAll = document.getElementById('btn-rec-all');
+    const novoBtnSingle = btnSingle.cloneNode(true); btnSingle.replaceWith(novoBtnSingle);
+    const novoBtnForward = btnForward.cloneNode(true); btnForward.replaceWith(novoBtnForward);
+    const novoBtnAll = btnAll.cloneNode(true); btnAll.replaceWith(novoBtnAll);
+    document.getElementById('btn-cancel-rec').onclick = () => modal.classList.add('hidden');
+
+    const keyMes = projDate ? projDate.substring(0, 7) : txOriginal.launchDate.substring(0, 7);
+
+    novoBtnSingle.addEventListener('click', async () => {
+        modal.classList.add('hidden');
+        if (acao === 'apagar') {
+            const overrides = txOriginal.overrides || {}; overrides[keyMes] = { deleted: true };
+            await updateDoc(doc(db, 'transactions', txOriginal.id), { overrides });
+        } else abrirModalTransacao('editar', { ...txOriginal, launchDate: projDate || txOriginal.launchDate, isOverrideMode: true, overrideKey: keyMes });
+    });
+    novoBtnForward.addEventListener('click', async () => {
+        modal.classList.add('hidden');
+        const dataAnterior = new Date(`${keyMes}-01T12:00:00`); dataAnterior.setMonth(dataAnterior.getMonth() - 1);
+        const endKey = `${dataAnterior.getFullYear()}-${String(dataAnterior.getMonth() + 1).padStart(2, '0')}`;
+        if (acao === 'apagar') await updateDoc(doc(db, 'transactions', txOriginal.id), { endDate: endKey });
+        else { await updateDoc(doc(db, 'transactions', txOriginal.id), { endDate: endKey }); abrirModalTransacao('criar', { ...txOriginal, id: null, launchDate: projDate || txOriginal.launchDate }); }
+    });
+    novoBtnAll.addEventListener('click', async () => {
+        modal.classList.add('hidden');
+        if (acao === 'apagar') await deleteDoc(doc(db, 'transactions', txOriginal.id));
+        else abrirModalTransacao('editar', txOriginal); 
+    });
 }
