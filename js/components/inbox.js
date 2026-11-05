@@ -1,16 +1,21 @@
 // js/components/inbox.js
 import { auth, db } from '../config/firebase.js';
-import { collection, query, where, onSnapshot, updateDoc, doc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, where, onSnapshot, updateDoc, doc, arrayUnion, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-let unsubscribeInbox = null;
-let currentChatTx = null; // Guarda a transação aberta no chat
+let unsubscribeTx = null;
+let unsubscribeSp = null;
+let currentChatTx = null; 
+
+let inboxData = {
+    transactions: [],
+    spaces: []
+};
 
 export function renderizarInbox() {
     const main = document.getElementById('main-content');
     const user = auth.currentUser;
     if (!user) return;
 
-    // 1. Injeção da Interface
     main.innerHTML = `
         <div class="flex flex-col h-full max-w-4xl mx-auto w-full animate-fade-in">
             <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
@@ -33,127 +38,218 @@ export function renderizarInbox() {
     injetarModalChat();
     configurarAbas();
 
-    // 2. Escutar Transações Partilhadas no Firebase
     const qTx = query(collection(db, 'transactions'), where('participantEmails', 'array-contains', user.email));
-    
-    unsubscribeInbox = onSnapshot(qTx, (snapshot) => {
-        const transacoes = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        const listPendentes = document.getElementById('view-pendentes');
-        const listHistorico = document.getElementById('view-historico');
-        
-        listPendentes.innerHTML = '';
-        listHistorico.innerHTML = '';
-        let contPendentes = 0;
+    unsubscribeTx = onSnapshot(qTx, (snapshot) => {
+        inboxData.transactions = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        window.transacoesInbox = inboxData.transactions; 
+        atualizarListasInbox(user);
+    });
 
-        transacoes.forEach(tx => {
-            // Ignora se for despesa individual (sem partilha)
-            if (!tx.splitParticipants || tx.splitParticipants.length <= 1) return;
-
-            const isCreator = tx.creatorEmail === user.email;
-            const myPart = tx.splitParticipants.find(p => p.email === user.email);
-            if (!myPart) return;
-
-            // Lógica de Estado:
-            // Se eu não sou o criador e o meu status é undefined ou 'pending' -> PENDENTE PARA MIM
-            // Se eu não sou o criador e o meu status é 'contested' -> A AGUARDAR O CRIADOR (Histórico para mim)
-            // Se eu SOU o criador e alguém está 'contested' -> PENDENTE PARA MIM APROVAR
-            
-            let precisaAcao = false;
-            let statusBadge = '';
-            
-            if (!isCreator) {
-                if (!myPart.status || myPart.status === 'pending') precisaAcao = true;
-                else statusBadge = myPart.status;
-            } else {
-                // Sou o criador. Há alguém a contestar?
-                const contestedBy = tx.splitParticipants.find(p => p.status === 'contested');
-                if (contestedBy) precisaAcao = true;
-                else statusBadge = 'resolved'; // Para o criador, se não há disputas, é histórico
-            }
-
-            const isIncome = tx.type === 'income';
-            const valDisplay = myPart.amount || 0;
-
-            if (precisaAcao) {
-                contPendentes++;
-                listPendentes.innerHTML += `
-                    <div class="p-5 bg-slate-800 rounded-2xl border border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-indigo-500/50 cursor-pointer" onclick="window.abrirChatInbox('${tx.id}')">
-                        <div class="flex items-center gap-4 pointer-events-none">
-                            <div class="w-12 h-12 rounded-full flex items-center justify-center text-2xl shrink-0 bg-amber-500/20 text-amber-500 relative">
-                                <i class="ph-fill ph-bell-ringing"></i>
-                                <span class="absolute top-0 right-0 w-3 h-3 bg-rose-500 border-2 border-slate-800 rounded-full animate-pulse"></span>
-                            </div>
-                            <div>
-                                <p class="font-bold text-white">${isCreator ? 'Alguém contestou um valor' : `${tx.creatorEmail} enviou um rateio`}</p>
-                                <p class="text-sm font-medium text-slate-300">${tx.description}</p>
-                                <p class="text-xs text-slate-400 mt-1">Data: ${tx.launchDate.split('-').reverse().join('/')}</p>
-                            </div>
-                        </div>
-                        <div class="flex flex-col items-end gap-2 shrink-0 pointer-events-none">
-                            <div class="text-right flex justify-between md:block items-center w-full mb-2 md:mb-0">
-                                <p class="text-xs text-slate-400">${isCreator ? 'Valor Contestado' : 'A sua Parte'}</p>
-                                <span class="text-2xl font-bold ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">R$ ${valDisplay.toFixed(2)}</span>
-                            </div>
-                            <button class="w-full md:w-auto px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 pointer-events-auto">
-                                <i class="ph-fill ph-chat-circle-dots mr-2"></i> Abrir Chat
-                            </button>
-                        </div>
-                    </div>
-                `;
-            } else if (statusBadge === 'accepted' || statusBadge === 'rejected' || statusBadge === 'contested') {
-                // Histórico
-                let icon = statusBadge === 'accepted' ? 'check-circle' : (statusBadge === 'rejected' ? 'x-circle' : 'clock');
-                let color = statusBadge === 'accepted' ? 'emerald' : (statusBadge === 'rejected' ? 'rose' : 'amber');
-                let txt = statusBadge === 'accepted' ? 'Você aceitou' : (statusBadge === 'rejected' ? 'Você recusou' : 'A aguardar resposta do criador');
-                
-                if (isCreator) { txt = 'Resolvido'; color = 'slate'; icon = 'check-circle'; }
-
-                listHistorico.innerHTML += `
-                    <div class="p-5 bg-slate-800/50 rounded-2xl border border-slate-700/50 flex items-center justify-between gap-4 opacity-70">
-                        <div class="flex items-center gap-4">
-                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 bg-${color}-500/20 text-${color}-500"><i class="ph-fill ph-${icon}"></i></div>
-                            <div>
-                                <p class="font-bold text-slate-300">${txt}: ${tx.description}</p>
-                                <p class="text-xs text-slate-500 mt-1">Valor base: R$ ${tx.amount.toFixed(2)}</p>
-                            </div>
-                        </div>
-                        <button class="px-4 py-2 bg-slate-700 text-white rounded-lg text-xs font-bold hover:bg-slate-600 transition-colors" onclick="window.abrirChatInbox('${tx.id}')">Ver Chat</button>
-                    </div>
-                `;
-            }
-        });
-
-        document.getElementById('tab-pendentes').innerText = `Pendentes (${contPendentes})`;
-        if (contPendentes === 0) {
-            listPendentes.innerHTML = `
-                <div class="flex flex-col items-center justify-center py-20 text-slate-500 animate-fade-in">
-                    <i class="ph-fill ph-check-circle text-6xl mb-4 opacity-30"></i>
-                    <p class="font-medium text-lg text-slate-400">Tudo limpo!</p>
-                    <p class="text-sm">Nenhuma pendência de rateio no momento.</p>
-                </div>
-            `;
-        }
-
-        // Se o chat estiver aberto, atualiza o conteúdo do chat em tempo real
-        if (currentChatTx) {
-            const atualizada = transacoes.find(t => t.id === currentChatTx.id);
-            if (atualizada) window.abrirChatInbox(atualizada.id, transacoes);
-        }
-
-        // Tornar a lista de transacoes global para uso na função de abrir o chat
-        window.transacoesInbox = transacoes;
+    const qSp = query(collection(db, 'spaces'), where('participantEmails', 'array-contains', user.email));
+    unsubscribeSp = onSnapshot(qSp, (snapshot) => {
+        inboxData.spaces = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        atualizarListasInbox(user);
     });
 
     main.dataset.unsubscribeInbox = "true";
 }
 
-export function limparListenerInbox() {
-    if (unsubscribeInbox) { unsubscribeInbox(); unsubscribeInbox = null; }
+function atualizarListasInbox(user) {
+    const listPendentes = document.getElementById('view-pendentes');
+    const listHistorico = document.getElementById('view-historico');
+    
+    let htmlPendentes = '';
+    let htmlHistorico = '';
+    let contPendentes = 0;
+
+    inboxData.spaces.forEach(sp => {
+        if (sp.isIndividual) return;
+        const isCreator = sp.creatorEmail === user.email;
+        const myPart = (sp.membersData || []).find(m => m.email === user.email);
+        if (!myPart) return;
+
+        if (!isCreator && myPart.status === 'pending') {
+            contPendentes++;
+            htmlPendentes += `
+                <div class="p-5 bg-slate-800 rounded-2xl border border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-indigo-500/50">
+                    <div class="flex items-center gap-4 pointer-events-none">
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-2xl shrink-0 bg-indigo-500/20 text-indigo-400 relative">
+                            <i class="ph-fill ph-users-three"></i>
+                            <span class="absolute top-0 right-0 w-3 h-3 bg-rose-500 border-2 border-slate-800 rounded-full animate-pulse"></span>
+                        </div>
+                        <div>
+                            <p class="font-bold text-white">${sp.creatorEmail.split('@')[0]} convidou-o para um espaço</p>
+                            <p class="text-sm font-medium text-slate-300">Espaço: <span class="text-white font-bold">${sp.name}</span></p>
+                            <p class="text-xs text-slate-400 mt-1">Colaboração financeira mútua</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 shrink-0">
+                        <button class="px-5 py-2.5 bg-rose-500/10 text-rose-400 rounded-xl text-sm font-bold hover:bg-rose-500/20 transition-colors" onclick="window.responderConviteEspaco('${sp.id}', 'rejected')">Recusar</button>
+                        <button class="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-500 transition-colors" onclick="window.responderConviteEspaco('${sp.id}', 'accepted')">Aceitar Convite</button>
+                    </div>
+                </div>
+            `;
+        } else if (!isCreator && (myPart.status === 'accepted' || myPart.status === 'rejected')) {
+            let icon = myPart.status === 'accepted' ? 'check-circle' : 'x-circle';
+            let color = myPart.status === 'accepted' ? 'emerald' : 'rose';
+            let txt = myPart.status === 'accepted' ? 'Aceitou o convite para o espaço' : 'Recusou o convite para o espaço';
+            
+            htmlHistorico += `
+                <div class="p-5 bg-slate-800/50 rounded-2xl border border-slate-700/50 flex items-center justify-between gap-4 opacity-70">
+                    <div class="flex items-center gap-4">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 bg-${color}-500/20 text-${color}-500"><i class="ph-fill ph-${icon}"></i></div>
+                        <div>
+                            <p class="font-bold text-slate-300">${txt} <span class="text-white">${sp.name}</span></p>
+                            <p class="text-xs text-slate-500 mt-1">De: ${sp.creatorEmail}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    });
+
+    inboxData.transactions.forEach(tx => {
+        if (!tx.splitParticipants || tx.splitParticipants.length <= 1) return;
+
+        const isCreator = tx.creatorEmail === user.email;
+        const myPart = tx.splitParticipants.find(p => p.email === user.email);
+        if (!myPart) return;
+        
+        let precisaAcao = false;
+        let statusBadge = '';
+        
+        if (!isCreator) {
+            if (!myPart.status || myPart.status === 'pending' || myPart.status === 'contested' || myPart.status === 'accepted' || myPart.status === 'payment_rejected') {
+                precisaAcao = true;
+                statusBadge = myPart.status || 'pending';
+            } else {
+                statusBadge = myPart.status; 
+            }
+        } else {
+            const someoneContested = tx.splitParticipants.find(p => p.status === 'contested');
+            const someoneDeclared = tx.splitParticipants.find(p => p.status === 'payment_declared');
+            const someonePendingOrAccepted = tx.splitParticipants.find(p => p.email !== user.email && (p.status === 'pending' || p.status === 'accepted' || p.status === 'payment_rejected'));
+            
+            if (someoneContested || someoneDeclared || someonePendingOrAccepted) {
+                precisaAcao = true;
+                if (someoneContested) statusBadge = 'contested';
+                else if (someoneDeclared) statusBadge = 'payment_declared';
+                else statusBadge = 'waiting_payment';
+            } else {
+                statusBadge = 'resolved'; 
+            }
+        }
+
+        const isIncome = tx.type === 'income';
+        const valDisplay = myPart.amount || 0;
+
+        if (precisaAcao) {
+            contPendentes++;
+            
+            let statusText = '';
+            let statusIcon = '';
+            
+            if (isCreator && statusBadge === 'payment_declared') {
+                statusText = 'Validar pagamento recebido'; statusIcon = 'ph-check-circle';
+            } else if (isCreator && statusBadge === 'waiting_payment') {
+                statusText = 'Aguardando Pagamentos'; statusIcon = 'ph-clock';
+            } else if (isCreator) {
+                statusText = 'Alguém contestou um valor'; statusIcon = 'ph-bell-ringing';
+            } else if (!isCreator && statusBadge === 'accepted') {
+                statusText = 'Aceite (Aguardando o seu pagamento)'; statusIcon = 'ph-wallet';
+            } else if (!isCreator && statusBadge === 'payment_rejected') {
+                statusText = 'Pagamento Recusado (Tente novamente)'; statusIcon = 'ph-warning-circle';
+            } else {
+                statusText = `${tx.creatorEmail} enviou um rateio`; statusIcon = 'ph-bell-ringing';
+            }
+
+            htmlPendentes += `
+                <div class="p-5 bg-slate-800 rounded-2xl border border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-indigo-500/50 cursor-pointer" onclick="window.abrirChatInbox('${tx.id}')">
+                    <div class="flex items-center gap-4 pointer-events-none">
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-2xl shrink-0 bg-amber-500/20 text-amber-500 relative">
+                            <i class="ph-fill ${statusIcon}"></i>
+                            ${(statusBadge !== 'accepted' && statusBadge !== 'waiting_payment' && statusBadge !== 'payment_declared') ? '<span class="absolute top-0 right-0 w-3 h-3 bg-rose-500 border-2 border-slate-800 rounded-full animate-pulse"></span>' : ''}
+                        </div>
+                        <div>
+                            <p class="font-bold text-white">${statusText}</p>
+                            <p class="text-sm font-medium text-slate-300">${tx.description}</p>
+                            <p class="text-xs text-slate-400 mt-1">Data: ${tx.launchDate.split('-').reverse().join('/')}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-col items-end gap-2 shrink-0 pointer-events-none">
+                        <div class="text-right flex justify-between md:block items-center w-full mb-2 md:mb-0">
+                            <p class="text-xs text-slate-400">${isCreator ? 'Valor Requerido' : 'A sua Parte'}</p>
+                            <span class="text-2xl font-bold ${isIncome ? 'text-emerald-400' : 'text-rose-400'}">R$ ${valDisplay.toFixed(2)}</span>
+                        </div>
+                        <button class="w-full md:w-auto px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 pointer-events-auto">
+                            <i class="ph-fill ph-chat-circle-dots mr-2"></i> Abrir Chat
+                        </button>
+                    </div>
+                </div>
+            `;
+        } else if (statusBadge === 'paid' || statusBadge === 'rejected' || statusBadge === 'resolved') {
+            let icon = statusBadge === 'paid' ? 'check-circle' : 'x-circle';
+            let color = statusBadge === 'paid' ? 'emerald' : 'rose';
+            let txt = statusBadge === 'paid' ? 'Rateio Pago' : 'Recusou o rateio';
+            
+            if (isCreator) { txt = 'Rateio Resolvido (Todos Pagaram)'; color = 'slate'; icon = 'check-circle'; }
+
+            htmlHistorico += `
+                <div class="p-5 bg-slate-800/50 rounded-2xl border border-slate-700/50 flex items-center justify-between gap-4 opacity-70">
+                    <div class="flex items-center gap-4">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 bg-${color}-500/20 text-${color}-500"><i class="ph-fill ph-${icon}"></i></div>
+                        <div>
+                            <p class="font-bold text-slate-300">${txt}: ${tx.description}</p>
+                            <p class="text-xs text-slate-500 mt-1">Valor base: R$ ${tx.amount.toFixed(2)}</p>
+                        </div>
+                    </div>
+                    <button class="px-4 py-2 bg-slate-700 text-white rounded-lg text-xs font-bold hover:bg-slate-600 transition-colors" onclick="window.abrirChatInbox('${tx.id}')">Ver Chat</button>
+                </div>
+            `;
+        }
+    });
+
+    document.getElementById('tab-pendentes').innerText = `Pendentes (${contPendentes})`;
+    if (contPendentes === 0) {
+        listPendentes.innerHTML = `
+            <div class="flex flex-col items-center justify-center py-20 text-slate-500 animate-fade-in">
+                <i class="ph-fill ph-check-circle text-6xl mb-4 opacity-30"></i>
+                <p class="font-medium text-lg text-slate-400">Tudo limpo!</p>
+                <p class="text-sm">Nenhuma pendência no momento.</p>
+            </div>
+        `;
+    } else listPendentes.innerHTML = htmlPendentes;
+    
+    listHistorico.innerHTML = htmlHistorico || `<div class="text-center p-8 text-slate-500">Sem histórico.</div>`;
+
+    if (currentChatTx) {
+        const atualizada = inboxData.transactions.find(t => t.id === currentChatTx.id);
+        if (atualizada) window.abrirChatInbox(atualizada.id);
+    }
 }
 
-// ==========================================
-// MODAL DE CHAT E NEGOCIAÇÃO
-// ==========================================
+export function limparListenerInbox() {
+    if (unsubscribeTx) { unsubscribeTx(); unsubscribeTx = null; }
+    if (unsubscribeSp) { unsubscribeSp(); unsubscribeSp = null; }
+}
+
+window.responderConviteEspaco = async (spaceId, novoStatus) => {
+    const user = auth.currentUser;
+    const sp = inboxData.spaces.find(s => s.id === spaceId);
+    if (!sp) return;
+
+    let novosMembros = [...sp.membersData];
+    const index = novosMembros.findIndex(m => m.email === user.email);
+    if (index !== -1) { novosMembros[index].status = novoStatus; }
+
+    let payload = { membersData: novosMembros };
+    if (novoStatus === 'rejected') {
+        payload.participantEmails = sp.participantEmails.filter(e => e !== user.email);
+    }
+
+    try { await updateDoc(doc(db, 'spaces', spaceId), payload); } 
+    catch (err) { console.error(err); alert("Erro ao responder convite."); }
+};
 
 function configurarAbas() {
     const tabPend = document.getElementById('tab-pendentes');
@@ -180,7 +276,6 @@ function injetarModalChat() {
     const html = `
     <div id="modal-chat" class="fixed inset-0 bg-black/80 z-[105] flex justify-center items-center p-4 hidden animate-fade-in">
         <div class="bg-darkcard w-full max-w-md rounded-3xl shadow-2xl border border-darkborder overflow-hidden flex flex-col h-[90vh]">
-            
             <div class="p-5 bg-slate-800 border-b border-darkborder flex justify-between items-center shrink-0">
                 <div>
                     <h3 id="chat-header-title" class="font-bold text-white text-lg leading-tight"></h3>
@@ -205,7 +300,6 @@ function injetarModalChat() {
             <div id="chat-messages" class="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-900 scroll-smooth"></div>
             
             <div id="chat-footer" class="p-5 bg-slate-800 border-t border-darkborder shrink-0 transition-all">
-                
                 <div id="state-default" class="animate-fade-in">
                     <div class="flex gap-2 mb-3">
                         <input type="text" id="chat-input" placeholder="Mensagem..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
@@ -247,24 +341,19 @@ function injetarModalChat() {
     
     document.body.insertAdjacentHTML('beforeend', html);
     
-    // Máquina de estados
     document.querySelectorAll('.btn-cancel-state').forEach(b => b.addEventListener('click', () => window.changeChatState('default')));
     
-    // Envio de Mensagem Texto Normal
     const enviarMsg = async () => {
         const txt = document.getElementById('chat-input').value.trim();
         if(!txt || !currentChatTx) return;
-        
         const user = auth.currentUser;
         const newMsg = { sender: user.email, text: txt, type: 'text', time: new Date().toISOString() };
-        
         document.getElementById('chat-input').value = '';
         await updateDoc(doc(db, 'transactions', currentChatTx.id), { messages: arrayUnion(newMsg) });
     };
     document.getElementById('btn-send-msg').addEventListener('click', enviarMsg);
     document.getElementById('chat-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') enviarMsg(); });
 
-    // Ações de Negociação (Aceitar, Recusar, Contestar)
     document.getElementById('btn-confirm-reject').addEventListener('click', async () => {
         const reason = document.getElementById('reject-reason').value;
         await processarNegociacao('rejected', `Recusado: ${reason}`);
@@ -278,7 +367,54 @@ function injetarModalChat() {
     });
 
     window.aceitarDespesa = async (newVal = null) => {
-        await processarNegociacao('accepted', `Aceitou a despesa.`, newVal);
+        await processarNegociacao('accepted', `Aceitou a despesa. Vá à aba de Lançamentos para Efetivar/Pagar.`, newVal);
+    };
+
+    // A VALIDAÇÃO DO PAGAMENTO PELO CRIADOR DA DESPESA
+    window.validarPagamento = async (guestEmail, isAccepted) => {
+        if(!currentChatTx) return;
+        const txRef = doc(db, 'transactions', currentChatTx.id);
+        let novaLista = [...currentChatTx.splitParticipants];
+        const guestIndex = novaLista.findIndex(p => p.email === guestEmail);
+        if (guestIndex === -1) return;
+
+        const guestPart = novaLista[guestIndex];
+        const meuValor = guestPart.amount;
+
+        if (isAccepted) {
+            novaLista[guestIndex].status = 'paid';
+            const newMsg = { sender: 'SYSTEM', text: `Pagamento de R$ ${meuValor.toFixed(2)} validado e recebido por ${auth.currentUser.email}.`, type: 'system', time: new Date().toISOString() };
+            
+            await updateDoc(txRef, { splitParticipants: novaLista, messages: arrayUnion(newMsg) });
+
+            // CRIA A RECEITA DE REEMBOLSO NA CONTA DO CRIADOR
+            await addDoc(collection(db, 'transactions'), {
+                creatorId: currentChatTx.creatorId,
+                creatorEmail: currentChatTx.creatorEmail,
+                type: 'income',
+                description: `Reembolso de Rateio: ${currentChatTx.description}`,
+                amount: meuValor,
+                category: 'Reembolso',
+                categoryIcon: '💸',
+                categoryColor: '#10b981',
+                accountId: '', // Sem conta definida, ele vai ter de Efetivar para dizer onde caiu o dinheiro
+                accountType: 'wallet',
+                accountName: 'A Receber',
+                launchDate: new Date().toISOString().split('T')[0],
+                status: 'pending', 
+                splitType: 'ind', recurrence: 'none',
+                participantEmails: [currentChatTx.creatorEmail],
+                splitParticipants: [{email: currentChatTx.creatorEmail, amount: meuValor, status: 'pending'}],
+                spaceId: currentChatTx.spaceId || null,
+                createdAt: new Date().toISOString()
+            });
+        } else {
+            // CRIADOR RECUSOU O PAGAMENTO -> Muda para payment_rejected para que o convidado possa tentar novamente
+            novaLista[guestIndex].status = 'payment_rejected';
+            const newMsg = { sender: 'SYSTEM', text: `Pagamento recusado por ${auth.currentUser.email}. A dívida voltou a ficar pendente.`, type: 'system', time: new Date().toISOString() };
+            await updateDoc(txRef, { splitParticipants: novaLista, messages: arrayUnion(newMsg) });
+        }
+        window.changeChatState('default');
     };
 }
 
@@ -294,19 +430,16 @@ async function processarNegociacao(newStatus, msgText, propValue = null) {
     const user = auth.currentUser;
     const txRef = doc(db, 'transactions', currentChatTx.id);
     
-    // 1. Atualizar o Array de Participantes com o novo Status
     const isCreator = currentChatTx.creatorEmail === user.email;
     let novaLista = [...currentChatTx.splitParticipants];
     
     if (isCreator && newStatus === 'accepted') {
-        // O criador aceitou a proposta do outro
         const pessoaContestando = novaLista.find(p => p.status === 'contested');
         if(pessoaContestando) {
             pessoaContestando.status = 'accepted';
             if (propValue) pessoaContestando.amount = propValue;
         }
     } else {
-        // Sou o convidado a alterar o meu próprio status
         const meuIndex = novaLista.findIndex(p => p.email === user.email);
         if(meuIndex !== -1) {
             novaLista[meuIndex].status = newStatus;
@@ -315,15 +448,14 @@ async function processarNegociacao(newStatus, msgText, propValue = null) {
         }
     }
 
-    // 2. Adicionar mensagem automática ao chat
     const newMsg = { sender: 'SYSTEM', text: `${user.email} ${msgText}`, type: 'system', time: new Date().toISOString() };
 
     await updateDoc(txRef, { splitParticipants: novaLista, messages: arrayUnion(newMsg) });
     window.changeChatState('default');
 }
 
-window.abrirChatInbox = (txId, fallbackList = null) => {
-    const lista = fallbackList || window.transacoesInbox;
+window.abrirChatInbox = (txId) => {
+    const lista = window.transacoesInbox; 
     const tx = lista.find(t => t.id === txId);
     if (!tx) return;
     currentChatTx = tx;
@@ -337,7 +469,6 @@ window.abrirChatInbox = (txId, fallbackList = null) => {
     document.getElementById('chat-total-val').innerText = `R$ ${tx.amount.toFixed(2)}`;
     document.getElementById('chat-my-val').innerText = `R$ ${(myPart.amount || 0).toFixed(2)}`;
 
-    // Renderizar Mensagens
     const container = document.getElementById('chat-messages');
     container.innerHTML = '';
     
@@ -359,12 +490,11 @@ window.abrirChatInbox = (txId, fallbackList = null) => {
         }
     });
 
-    // Renderizar Botões de Ação
     const actionsBox = document.getElementById('chat-action-buttons');
     const contestedPart = tx.splitParticipants.find(p => p.status === 'contested');
+    const declaredPart = tx.splitParticipants.find(p => p.status === 'payment_declared');
 
     if (isCreator && contestedPart) {
-        // Criador vê a proposta
         actionsBox.innerHTML = `
             <div class="bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 mb-3">
                 <p class="text-xs text-amber-500 font-bold mb-1">Contraproposta recebida: R$ ${contestedPart.proposedAmount.toFixed(2)}</p>
@@ -374,8 +504,41 @@ window.abrirChatInbox = (txId, fallbackList = null) => {
                 </div>
             </div>
         `;
+    } else if (isCreator && declaredPart) {
+        actionsBox.innerHTML = `
+            <div class="bg-indigo-500/10 p-3 rounded-xl border border-indigo-500/20 mb-3">
+                <p class="text-xs text-indigo-400 font-bold mb-1">${declaredPart.email.split('@')[0]} declarou pagamento de R$ ${declaredPart.amount.toFixed(2)}</p>
+                <div class="flex gap-2 mt-2">
+                    <button class="flex-1 py-2 bg-rose-500/20 text-rose-400 rounded-lg text-xs font-bold hover:bg-rose-500/30" onclick="window.validarPagamento('${declaredPart.email}', false)">Não Recebi</button>
+                    <button class="flex-1 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-500" onclick="window.validarPagamento('${declaredPart.email}', true)">Validar e Receber</button>
+                </div>
+            </div>
+        `;
+    } else if (!isCreator && myPart.status === 'payment_rejected') {
+        actionsBox.innerHTML = `
+            <div class="text-center p-4 bg-rose-500/10 rounded-xl border border-rose-500/20 text-xs text-rose-400 mb-2">
+                <i class="ph-fill ph-warning-circle text-2xl mb-1"></i><br>
+                <strong>Pagamento Recusado!</strong><br>
+                O criador informou que não recebeu o valor. A dívida voltou para o seu extrato como Pendente.
+            </div>
+        `;
+    } else if (!isCreator && myPart.status === 'accepted') {
+        actionsBox.innerHTML = `
+            <div class="text-center p-4 bg-emerald-500/10 rounded-xl border border-emerald-500/20 text-xs text-emerald-400 mb-2">
+                <i class="ph-fill ph-check-circle text-2xl mb-1"></i><br>
+                <strong>Você aceitou esta dívida!</strong><br>
+                Ela já aparece no seu Extrato. Para enviar o comprovativo para o criador, vá à aba <strong class="text-white">Lançamentos</strong> e clique em Efetivar.
+            </div>
+        `;
+    } else if (!isCreator && myPart.status === 'payment_declared') {
+        actionsBox.innerHTML = `
+            <div class="text-center p-4 bg-indigo-500/10 rounded-xl border border-indigo-500/20 text-xs text-indigo-400 mb-2">
+                <i class="ph-fill ph-hourglass text-2xl mb-1"></i><br>
+                <strong>Aguardando Validação!</strong><br>
+                Você informou o pagamento. O criador precisa confirmar o recebimento do dinheiro.
+            </div>
+        `;
     } else if (!isCreator && (!myPart.status || myPart.status === 'pending')) {
-        // Convidado vê botões normais
         actionsBox.innerHTML = `
             <button class="w-full py-2 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-xl text-xs font-bold hover:bg-amber-500/20 transition-colors mb-2" onclick="window.changeChatState('contest')">
                 <i class="ph-fill ph-scales mr-1"></i> Contestar Valor
@@ -386,7 +549,6 @@ window.abrirChatInbox = (txId, fallbackList = null) => {
             </div>
         `;
     } else {
-        // Visualização histórica
         actionsBox.innerHTML = `<div class="text-center p-3 bg-slate-900 rounded-xl border border-slate-700 text-xs font-bold text-slate-500"><i class="ph-fill ph-lock-key mr-1"></i> Ação Finalizada</div>`;
     }
 

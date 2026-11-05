@@ -1,14 +1,15 @@
 // js/components/transactions.js
 import { auth, db } from '../config/firebase.js';
-import { collection, query, where, onSnapshot, doc, deleteDoc, getDoc, updateDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { abrirModalTransacao } from './transactionModal.js';
+import { collection, query, where, onSnapshot, doc, deleteDoc, getDoc, updateDoc, getDocs, addDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { abrirModalTransacao, abrirDetalheTransacao, excluirTransacaoUniversal, recusarTransacaoPartilhada } from './transactionModal.js';
+import { abrirDetalheConta } from './accountDetails.js';
 
 let unsubscribeTransactions = null;
 let unsubscribeAccounts = null;
 let currentFilter = 'all'; 
 let dataReferenciaAtual = new Date(); 
 
-window.faturasFechadasGlobais = {}; // Memória para o modal de pagamento
+window.faturasFechadasGlobais = {}; 
 
 function atualizarLabelMes() {
     const label = document.getElementById('label-month');
@@ -49,7 +50,6 @@ export function renderizarLancamentos() {
             
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 shrink-0 pb-4" id="cards-totais"></div>
             
-            <!-- MODAL DE EFETIVAÇÃO NORMAL -->
             <div id="modal-efetivar" class="fixed inset-0 bg-black/80 z-[110] flex items-center justify-center p-4 hidden animate-fade-in">
                 <form id="form-efetivar" class="bg-darkcard w-full max-w-sm rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col">
                     <div class="flex justify-between items-center mb-4">
@@ -59,6 +59,13 @@ export function renderizarLancamentos() {
                     <p class="text-sm text-slate-400 mb-4" id="efetivar-desc">Confirme a data de efetivação.</p>
                     <input type="hidden" id="efetivar-id" />
                     <input type="hidden" id="efetivar-proj-date" />
+                    <input type="hidden" id="efetivar-req-conta" />
+                    
+                    <div id="efetivar-box-conta" class="mb-4 hidden">
+                        <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Recebido/Pago em qual conta?</label>
+                        <select id="efetivar-conta" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500"></select>
+                    </div>
+
                     <div>
                         <label id="efetivar-label-data" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Data</label>
                         <input type="date" id="efetivar-data" required class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500" />
@@ -70,16 +77,19 @@ export function renderizarLancamentos() {
                 </form>
             </div>
 
-            <!-- MODAL GLOBAL DE PAGAMENTO DE FATURA -->
             <div id="modal-pagar-fatura-global" class="fixed inset-0 bg-black/90 z-[120] flex items-center justify-center p-4 hidden animate-fade-in">
                 <form id="form-pagar-fatura-global" class="bg-darkcard w-full max-w-sm rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col">
                     <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-lg font-bold text-white">Pagar Fatura Total</h2>
+                        <h2 class="text-lg font-bold text-white">Efetuar Pagamento</h2>
                         <button type="button" id="btn-close-fatura-global" class="text-slate-400 hover:text-rose-500"><i class="ph ph-x text-xl"></i></button>
                     </div>
-                    <p class="text-sm text-slate-400 mb-5">Serão liquidados <strong id="fatura-global-qtd" class="text-white">X</strong> lançamentos no valor total de <strong id="fatura-global-valor" class="text-purple-400">R$ 0,00</strong>.</p>
+                    <p class="text-sm text-slate-400 mb-5">Valor pendente da fatura: <strong id="fatura-global-valor-texto" class="text-purple-400">R$ 0,00</strong>.</p>
                     <div class="space-y-4">
                         <input type="hidden" id="fatura-global-acc-id" />
+                        <div>
+                            <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Valor a Pagar (R$)</label>
+                            <input type="number" id="fatura-global-valor-pago" step="0.01" required class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-2xl font-bold text-white focus:outline-none focus:border-purple-500" />
+                        </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Pagar com qual conta?</label>
                             <select id="fatura-global-conta-debito" required class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:outline-none focus:border-indigo-500"></select>
@@ -91,30 +101,9 @@ export function renderizarLancamentos() {
                     </div>
                     <div class="flex justify-end space-x-3 mt-6 pt-4 border-t border-slate-700">
                         <button type="button" id="btn-cancel-fatura-global" class="px-4 py-2 text-slate-400 font-bold hover:bg-slate-800 rounded-xl">Cancelar</button>
-                        <button type="submit" id="btn-submit-fatura-global" class="px-4 py-2 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-500 shadow-lg shadow-purple-500/30 transition-colors">Confirmar Pagamento</button>
+                        <button type="submit" id="btn-submit-fatura-global" class="px-4 py-2 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-500 shadow-lg shadow-purple-500/30 transition-colors">Confirmar</button>
                     </div>
                 </form>
-            </div>
-
-            <!-- MODAL RECORRENCIA MANTIDO -->
-            <div id="modal-recorrencia" class="fixed inset-0 bg-black/90 z-[120] flex items-center justify-center p-4 hidden animate-fade-in">
-                <div class="bg-darkcard w-full max-w-sm rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col text-center">
-                    <div class="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 border border-indigo-500/20"><i class="ph-fill ph-arrows-clockwise"></i></div>
-                    <h2 class="text-lg font-bold text-white mb-2">Lançamento Recorrente</h2>
-                    <p class="text-sm text-slate-400 mb-6">Como deseja aplicar esta alteração?</p>
-                    <div class="space-y-3">
-                        <button id="btn-rec-single" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-colors flex flex-col items-center">
-                            <span>Somente este</span><span class="text-[10px] text-slate-400 font-normal mt-0.5">As outras datas não serão afetadas.</span>
-                        </button>
-                        <button id="btn-rec-forward" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-colors flex flex-col items-center">
-                            <span>Este e os seguintes</span><span class="text-[10px] text-slate-400 font-normal mt-0.5">Os anteriores mantêm-se iguais.</span>
-                        </button>
-                        <button id="btn-rec-all" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition-colors flex flex-col items-center">
-                            <span>Todos</span><span class="text-[10px] text-indigo-200 font-normal mt-0.5">Altera todo o histórico.</span>
-                        </button>
-                    </div>
-                    <button id="btn-cancel-rec" class="mt-6 text-sm text-slate-500 hover:text-slate-300 font-bold">Cancelar</button>
-                </div>
             </div>
         </div>
     `;
@@ -132,7 +121,6 @@ export function renderizarLancamentos() {
         });
     });
 
-    // Eventos Modal Efetivar Normal
     const modalEfetivar = document.getElementById('modal-efetivar');
     const fecharModalEfetivar = () => modalEfetivar.classList.add('hidden');
     document.getElementById('btn-close-efetivar').addEventListener('click', fecharModalEfetivar);
@@ -141,90 +129,130 @@ export function renderizarLancamentos() {
     document.getElementById('form-efetivar').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btnSave = document.getElementById('btn-save-efetivar');
-        const originalText = btnSave.innerText;
-        btnSave.disabled = true;
-        btnSave.innerText = 'A processar...';
+        btnSave.disabled = true; btnSave.innerText = 'Processando...';
         try {
             const id = document.getElementById('efetivar-id').value;
             const dataPagamento = document.getElementById('efetivar-data').value;
             const projDate = document.getElementById('efetivar-proj-date').value;
+            const reqConta = document.getElementById('efetivar-req-conta').value;
+            
             const docRef = doc(db, 'transactions', id);
             const docSnap = await getDoc(docRef);
             
             if (docSnap.exists()) {
                 const txData = docSnap.data();
+                let payload = { status: 'paid', paymentDate: dataPagamento };
+                
+                if (reqConta === 'true') {
+                    const selectedAccId = document.getElementById('efetivar-conta').value;
+                    const accObj = window.contasGlobaisTransactions.find(c => c.id === selectedAccId);
+                    if (accObj) {
+                        payload.accountId = accObj.id;
+                        payload.accountName = accObj.name;
+                        payload.accountType = accObj.type;
+                    }
+                }
+
                 if (projDate) {
                     const overrides = txData.overrides || {};
                     const keyMes = projDate.substring(0, 7); 
-                    overrides[keyMes] = { ...overrides[keyMes], status: 'paid', paymentDate: dataPagamento };
+                    overrides[keyMes] = { ...overrides[keyMes], ...payload };
                     await updateDoc(docRef, { overrides });
                 } else {
-                    const myEmail = auth.currentUser.email;
-                    let payload = { status: 'paid', paymentDate: dataPagamento };
+                    let guestIsPaying = false;
+                    let meuValor = 0;
+
                     if (txData.splitParticipants && txData.splitParticipants.length > 0) {
                         const updatedParticipants = txData.splitParticipants.map(p => {
-                            if (p.email === myEmail) return { ...p, status: 'paid', paymentDate: dataPagamento };
+                            if (p.email === user.email) {
+                                // Se eu não for o criador, eu ESTOU A DECLARAR PAGAMENTO (e não a efetivar de vez)
+                                if (p.email !== txData.creatorEmail && p.status !== 'paid' && p.status !== 'payment_declared') {
+                                    guestIsPaying = true;
+                                    meuValor = parseFloat(p.amount) || 0;
+                                    return { ...p, status: 'payment_declared', paymentDate: dataPagamento };
+                                }
+                                return { ...p, ...payload };
+                            }
                             return p;
                         });
-                        payload.splitParticipants = updatedParticipants;
+                        
+                        if (guestIsPaying) {
+                            const newMsg = { sender: 'SYSTEM', text: `${user.email.split('@')[0]} declarou que efetuou o pagamento. Aguardando validação do criador.`, type: 'system', time: new Date().toISOString() };
+                            await updateDoc(docRef, { splitParticipants: updatedParticipants, messages: arrayUnion(newMsg) });
+                        } else {
+                            payload.splitParticipants = updatedParticipants;
+                            await updateDoc(docRef, payload);
+                        }
+                    } else {
+                        await updateDoc(docRef, payload);
                     }
-                    await updateDoc(docRef, payload);
                 }
             }
             fecharModalEfetivar();
-        } catch (error) {
-            console.error(error); alert("Erro ao efetivar lançamento.");
-        } finally {
-            btnSave.disabled = false; btnSave.innerText = originalText;
-        }
+        } catch (error) { console.error(error); alert("Erro ao efetivar."); } 
+        finally { btnSave.disabled = false; btnSave.innerText = 'Confirmar'; }
     });
 
-    // Eventos Modal Fatura Global
     const modalFaturaGlobal = document.getElementById('modal-pagar-fatura-global');
     const fecharFaturaGlobal = () => modalFaturaGlobal.classList.add('hidden');
     document.getElementById('btn-close-fatura-global').addEventListener('click', fecharFaturaGlobal);
     document.getElementById('btn-cancel-fatura-global').addEventListener('click', fecharFaturaGlobal);
-
     document.getElementById('form-pagar-fatura-global').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btnSubmit = document.getElementById('btn-submit-fatura-global');
-        btnSubmit.disabled = true;
-        btnSubmit.innerText = 'A processar...';
+        btnSubmit.disabled = true; btnSubmit.innerText = 'Processando...';
 
         try {
+            const valorPago = parseFloat(document.getElementById('fatura-global-valor-pago').value);
             const dataPagamento = document.getElementById('fatura-global-data').value;
-            const contaDebitoId = document.getElementById('fatura-global-conta-debito').value;
+            const selectAcc = document.getElementById('fatura-global-conta-debito');
+            const contaDebitoId = selectAcc.value;
+            const nomeContaDebito = selectAcc.options[selectAcc.selectedIndex].text.replace(/^[🏦]\s*/, '');
             const accId = document.getElementById('fatura-global-acc-id').value;
             const fatura = window.faturasFechadasGlobais[accId];
+            const valorPendente = Math.max(0, fatura.totalAmount - fatura.paidAmount);
+            const linkedPaymentId = 'pay_' + new Date().getTime();
             
+            await addDoc(collection(db, 'transactions'), {
+                creatorId: user.uid, creatorEmail: user.email, type: 'expense',
+                description: 'Pagamento de Fatura', amount: valorPago,
+                category: 'Pagamento de Fatura', categoryIcon: '💳', categoryColor: '#a855f7',
+                accountId: contaDebitoId, accountType: 'wallet', accountName: nomeContaDebito,
+                launchDate: dataPagamento, status: 'paid', splitType: 'ind', recurrence: 'none',
+                participantEmails: [user.email], splitParticipants: [{email: user.email, amount: valorPago, status: 'paid'}],
+                linkedPaymentId: linkedPaymentId,
+                createdAt: new Date().toISOString()
+            });
+
+            const isTotal = valorPago >= (valorPendente - 0.01);
+            const launchDateFatura = `${dataReferenciaAtual.getFullYear()}-${String(dataReferenciaAtual.getMonth()+1).padStart(2,'0')}-${String(fatura.dueDay||10).padStart(2,'0')}`;
+
+            await addDoc(collection(db, 'transactions'), {
+                creatorId: user.uid, creatorEmail: user.email, type: 'income',
+                description: isTotal ? 'Pagamento Total da Fatura' : 'Pagamento Parcial da Fatura', amount: valorPago,
+                category: 'Pagamento de Fatura', categoryIcon: '💳', categoryColor: '#a855f7',
+                accountId: fatura.accountId, accountType: 'credit', accountName: fatura.accountName,
+                launchDate: launchDateFatura, status: 'paid', splitType: 'ind', recurrence: 'none',
+                participantEmails: [user.email], splitParticipants: [{email: user.email, amount: valorPago, status: 'paid'}],
+                linkedPaymentId: linkedPaymentId,
+                createdAt: new Date().toISOString()
+            });
+
             const keyMes = `${dataReferenciaAtual.getFullYear()}-${String(dataReferenciaAtual.getMonth() + 1).padStart(2, '0')}`;
-            
             const promises = fatura.txsPendentes.map(async (tx) => {
                 const docRef = doc(db, 'transactions', tx.id);
-                let payload = { status: 'paid', paymentDate: dataPagamento, paidFromAccountId: contaDebitoId };
-                
-                if (tx.splitParticipants && tx.splitParticipants.length > 0) {
-                    const updatedParticipants = tx.splitParticipants.map(p => {
-                        if (p.email === user.email) return { ...p, status: 'paid', paymentDate: dataPagamento };
-                        return p;
-                    });
-                    payload.splitParticipants = updatedParticipants;
-                }
-
+                const payload = { status: 'paid', paymentDate: dataPagamento };
                 if (tx.isProjection || tx.isCreditInvoice) {
                     const overrides = tx.overrides || {};
                     overrides[keyMes] = { ...overrides[keyMes], ...payload };
                     return updateDoc(docRef, { overrides });
                 } else return updateDoc(docRef, payload);
             });
-
             await Promise.all(promises);
+
             fecharFaturaGlobal();
-        } catch (error) {
-            console.error(error); alert("Erro ao efetivar a fatura.");
-        } finally {
-            btnSubmit.disabled = false; btnSubmit.innerText = 'Confirmar Pagamento';
-        }
+        } catch (error) { console.error(error); alert("Erro ao pagar a fatura."); } 
+        finally { btnSubmit.disabled = false; btnSubmit.innerText = 'Confirmar'; }
     });
 
     const qAcc = query(collection(db, 'accounts'), where('userId', '==', user.uid));
@@ -251,141 +279,103 @@ function projetarLancamentosDoMes(transacoes, dataRef, user) {
     const anoRef = dataRef.getFullYear();
     const mesRef = dataRef.getMonth();
     const keyMesAtual = `${anoRef}-${String(mesRef + 1).padStart(2, '0')}`;
-    let projetados = [];
+    const refAbsolute = anoRef * 12 + mesRef;
     
+    let projetados = [];
     let faturasFechadas = {};
     let faturasAbertas = {};
+    let ccSaldosAnteriores = {}; 
 
     transacoes.forEach(tx => {
         if (!tx.launchDate) return;
-        if (tx.endDate && keyMesAtual > tx.endDate.substring(0, 7)) return;
-
         const [txAnoStr, txMesStr, txDiaStr] = tx.launchDate.split('-');
         const txAno = parseInt(txAnoStr, 10);
         const txMes = parseInt(txMesStr, 10) - 1; 
         const txDia = parseInt(txDiaStr, 10);
+        
+        const myPart = tx.splitParticipants ? tx.splitParticipants.find(p => p.email === user.email) : null;
+        const meuValorCalculado = myPart ? parseFloat(myPart.amount) : parseFloat(tx.amount) || 0;
 
         if (tx.accountType === 'credit') {
             const conta = window.contasGlobaisTransactions?.find(c => c.id === tx.accountId) || {};
             const closingDay = parseInt(conta.closingDay) || 31;
             const dueDay = parseInt(conta.dueDay) || 10;
 
-            // Define a que Fatura base pertence a compra
-            let invMes = txMes + (txDia >= closingDay ? 2 : 1);
+            let invMes = txMes;
             let invAno = txAno;
-            while (invMes > 11) { invMes -= 12; invAno++; }
             
-            const diff = (anoRef - invAno) * 12 + (mesRef - invMes);
+            if (tx.type !== 'income' || tx.category !== 'Pagamento de Fatura') {
+                invMes = txMes + (txDia >= closingDay ? 2 : 1);
+                while (invMes > 11) { invMes -= 12; invAno++; }
+            }
 
-            let belongsToCurrent = false;
-            let belongsToNext = false;
-            let parcelaFinal = tx.currentInstallment;
+            const invAbsolute = invAno * 12 + invMes;
+            const diff = invAbsolute - refAbsolute;
+
+            if (invAbsolute < refAbsolute) {
+                if (tx.type === 'expense') ccSaldosAnteriores[tx.accountId] = (ccSaldosAnteriores[tx.accountId] || 0) + meuValorCalculado;
+                else ccSaldosAnteriores[tx.accountId] = (ccSaldosAnteriores[tx.accountId] || 0) - meuValorCalculado;
+            }
+
+            let belongsToCurrent = false; let belongsToNext = false; 
 
             if (tx.recurrence === 'none') {
                 if (diff === 0) belongsToCurrent = true;
-                if (diff === -1) belongsToNext = true; // Cai no mês que vem, avisa o utilizador!
+                if (diff === 1) belongsToNext = true; 
             } else if (tx.recurrence === 'fixed') {
-                if (diff >= 0) belongsToCurrent = true;
-                if (diff === -1) belongsToNext = true;
-            } else if (tx.recurrence === 'installments') {
-                const totalInst = parseInt(tx.installmentsTotal, 10) || 1;
-                const startInst = parseInt(tx.currentInstallment, 10) || 1;
-                if (diff >= 0 && (startInst + diff) <= totalInst) {
-                    belongsToCurrent = true; parcelaFinal = startInst + diff;
-                }
-                if (diff === -1 && (startInst <= totalInst)) {
-                    belongsToNext = true; // O utilizador criou hoje e vai ser cobrado mês que vem
-                }
+                if (diff <= 0) belongsToCurrent = true;
+                if (diff === 1) belongsToNext = true;
             }
 
             if (belongsToCurrent || belongsToNext) {
-                let txFinal = { ...tx, isProjection: true, isCreditInvoice: true, launchDate: `${anoRef}-${String(mesRef + 1).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`, currentInstallment: parcelaFinal };
-                if (txFinal.splitParticipants) txFinal.splitParticipants = txFinal.splitParticipants.map(p => ({...p, status: 'pending'}));
-                txFinal.status = 'pending';
-
-                if (tx.overrides && tx.overrides[keyMesAtual]) {
-                    if (tx.overrides[keyMesAtual].deleted) return; 
-                    txFinal = { ...txFinal, ...tx.overrides[keyMesAtual] }; 
-                }
-
-                // Agrupa na Fatura Fechada (Pode Pagar) ou na Fatura Aberta (Apenas Visualização)
                 const dicionarioAlvo = belongsToCurrent ? faturasFechadas : faturasAbertas;
-                
-                if (!dicionarioAlvo[txFinal.accountId]) {
-                    dicionarioAlvo[txFinal.accountId] = {
-                        accountId: txFinal.accountId, accountName: conta.name || tx.accountName || 'Cartão',
-                        dueDay, totalAmount: 0, paidAmount: 0, txsPendentes: [], txsPagas: []
-                    };
+                if (!dicionarioAlvo[tx.accountId]) {
+                    dicionarioAlvo[tx.accountId] = { accountId: tx.accountId, accountName: conta.name || tx.accountName || 'Cartão', dueDay, totalAmount: 0, paidAmount: 0, txsPendentes: [] };
                 }
-
-                const myPart = txFinal.splitParticipants ? txFinal.splitParticipants.find(p => p.email === user.email) : null;
-                const meuValor = myPart ? myPart.amount : txFinal.amount;
-                const myStatus = myPart ? myPart.status : (txFinal.status || 'pending');
-
-                if (txFinal.type === 'expense') dicionarioAlvo[txFinal.accountId].totalAmount += meuValor;
-                else dicionarioAlvo[txFinal.accountId].totalAmount -= meuValor;
-
-                if (myStatus === 'paid' || myStatus === 'accepted') {
-                    if (txFinal.type === 'expense') dicionarioAlvo[txFinal.accountId].paidAmount += meuValor;
-                    else dicionarioAlvo[txFinal.accountId].paidAmount -= meuValor;
-                    dicionarioAlvo[txFinal.accountId].txsPagas.push(txFinal);
-                } else dicionarioAlvo[txFinal.accountId].txsPendentes.push(txFinal);
+                if (tx.type === 'expense') {
+                    dicionarioAlvo[tx.accountId].totalAmount += meuValorCalculado;
+                    if (tx.status !== 'paid' && tx.status !== 'accepted') dicionarioAlvo[tx.accountId].txsPendentes.push(tx);
+                }
+                else dicionarioAlvo[tx.accountId].paidAmount += meuValorCalculado;
             }
         } else {
-            // Conta Normal
-            const mesesDiff = (anoRef - txAno) * 12 + (mesRef - txMes);
-            if (mesesDiff < 0) return;
+            const txAbsolute = txAno * 12 + txMes;
+            if (txAbsolute < refAbsolute) return;
+            if (txAbsolute === refAbsolute) projetados.push({...tx, isProjection: false});
+        }
+    });
 
-            let isProjection = false; let launchDateFinal = tx.launchDate; let parcelaFinal = tx.currentInstallment;
-            if (mesesDiff === 0) isProjection = false;
-            else if (mesesDiff > 0) {
-                if (tx.recurrence === 'fixed') { isProjection = true; launchDateFinal = `${keyMesAtual}-${txDiaStr}`; }
-                else if (tx.recurrence === 'installments') {
-                    const totalInst = parseInt(tx.installmentsTotal, 10) || 1;
-                    const startInst = parseInt(tx.currentInstallment, 10) || 1;
-                    if ((startInst + mesesDiff) <= totalInst) { isProjection = true; launchDateFinal = `${keyMesAtual}-${txDiaStr}`; parcelaFinal = startInst + mesesDiff; }
-                    else return; 
-                } else return; 
+    Object.keys(ccSaldosAnteriores).forEach(accId => {
+        if (ccSaldosAnteriores[accId] > 0.01) {
+            if (!faturasFechadas[accId]) {
+                const conta = window.contasGlobaisTransactions?.find(c => c.id === accId) || {};
+                faturasFechadas[accId] = { accountId: accId, accountName: conta.name || 'Cartão', dueDay: conta.dueDay || 10, totalAmount: 0, paidAmount: 0, txsPendentes: [] };
             }
-
-            let txFinal = { ...tx, isProjection, launchDate: launchDateFinal, currentInstallment: parcelaFinal };
-            if (isProjection) {
-                txFinal.status = 'pending';
-                if (txFinal.splitParticipants) txFinal.splitParticipants = txFinal.splitParticipants.map(p => ({...p, status: 'pending'}));
-            }
-            if (tx.overrides && tx.overrides[keyMesAtual]) {
-                if (tx.overrides[keyMesAtual].deleted) return; 
-                txFinal = { ...txFinal, ...tx.overrides[keyMesAtual] }; 
-            }
-            projetados.push(txFinal);
+            faturasFechadas[accId].totalAmount += ccSaldosAnteriores[accId];
         }
     });
 
     window.faturasFechadasGlobais = faturasFechadas;
 
-    // Gerar Linha da Fatura Deste Mês
     Object.values(faturasFechadas).forEach(f => {
-        if (f.totalAmount > 0) {
+        if (f.totalAmount > 0.01) {
             projetados.push({
                 isVirtualInvoice: true, isCurrentInvoice: true, id: 'fat_' + f.accountId, accountId: f.accountId, accountName: f.accountName,
-                description: `Fatura Cartão ${f.accountName}`, amount: f.totalAmount, paidAmount: f.paidAmount, pendingAmount: f.totalAmount - f.paidAmount,
-                txsPendentes: f.txsPendentes, txsPagas: f.txsPagas, type: 'expense', launchDate: `${anoRef}-${String(mesRef+1).padStart(2,'0')}-${String(f.dueDay).padStart(2,'0')}`,
-                status: (f.totalAmount - f.paidAmount) <= 0 ? 'paid' : 'pending', category: 'Cartão de Crédito', categoryIcon: '💳', categoryColor: '#a855f7', accountType: 'credit'
+                description: `Fatura ${f.accountName}`, amount: f.totalAmount, paidAmount: f.paidAmount, pendingAmount: f.totalAmount - f.paidAmount,
+                type: 'expense', launchDate: `${anoRef}-${String(mesRef+1).padStart(2,'0')}-${String(f.dueDay).padStart(2,'0')}`,
+                status: (f.totalAmount - f.paidAmount) <= 0.01 ? 'paid' : 'pending', category: 'Cartão de Crédito', categoryIcon: '💳', categoryColor: '#a855f7', accountType: 'credit'
             });
         }
     });
-
-    // Gerar Linha Fantasma da Fatura do Próximo Mês (O que evita o pânico do utilizador!)
     Object.values(faturasAbertas).forEach(f => {
-        if (f.totalAmount > 0) {
+        if (f.totalAmount > 0.01) {
             projetados.push({
                 isVirtualInvoice: true, isCurrentInvoice: false, id: 'fat_next_' + f.accountId, accountId: f.accountId, accountName: f.accountName,
-                description: `Fatura em Aberto (Próx. Mês)`, amount: f.totalAmount, type: 'expense', launchDate: `${anoRef}-${String(mesRef+1).padStart(2,'0')}-31`, // Ultimo dia do mes para ficar no fim da lista
+                description: `Fatura em Aberto (Próx. Mês)`, amount: f.totalAmount, type: 'expense', launchDate: `${anoRef}-${String(mesRef+1).padStart(2,'0')}-31`, 
                 status: 'pending', category: 'Cartão de Crédito', categoryIcon: '💳', categoryColor: '#64748b', accountType: 'credit'
             });
         }
     });
-
     return projetados;
 }
 
@@ -401,26 +391,36 @@ function processarDadosTabela(todasTransacoes) {
     const hojeRealStr = new Date().toISOString().split('T')[0];
 
     let transacoesFiltradas = transacoesDoMes.filter(tx => {
+        const isCreator = !tx.creatorEmail || tx.creatorEmail === user.email;
         const myPart = tx.splitParticipants ? tx.splitParticipants.find(p => p.email === user.email) : null;
-        const meuValor = myPart ? myPart.amount : tx.amount;
+        const meuValorRaw = myPart ? parseFloat(myPart.amount) : parseFloat(tx.amount || 0);
+        const meuValor = parseFloat(tx.isVirtualInvoice ? tx.pendingAmount : (meuValorRaw || 0)) || 0;
+        
         const status = myPart ? myPart.status : (tx.status || 'pending');
-        const isVencido = (!tx.isProjection && !tx.isVirtualInvoice && tx.launchDate < hojeRealStr && status !== 'paid' && status !== 'accepted');
+        const isVencido = (!tx.isProjection && !tx.isVirtualInvoice && tx.launchDate < hojeRealStr && status !== 'paid' && status !== 'accepted' && status !== 'payment_declared');
 
-        // Ignora a linha fantasma (Fatura em Aberto) da contabilidade do mês atual
+        // REGRA DE OURO: Esconder rateios apenas se forem 'pending' originais ou 'contested'. Aceite/Rejeitado/Pagamento Declarado mostra na tabela!
+        if (!tx.isVirtualInvoice && !isCreator && (status === 'pending' || status === 'contested')) {
+            return false;
+        }
+
         if (!tx.isVirtualInvoice || tx.isCurrentInvoice) {
             if (tx.type === 'income') {
                 recPrevisto += meuValor;
-                if (status === 'paid' || status === 'accepted') recEfetivado += meuValor;
+                if (status === 'paid' || status === 'accepted' || status === 'payment_declared') recEfetivado += meuValor;
             } else {
-                despPrevisto += meuValor;
-                if (status === 'paid' || status === 'accepted') despEfetivado += meuValor;
-                else if (isVencido) despVencido += meuValor;
+                if (tx.isVirtualInvoice) {
+                    despPrevisto += tx.pendingAmount; 
+                } else {
+                    despPrevisto += meuValor;
+                    if (status === 'paid' || status === 'accepted' || status === 'payment_declared') despEfetivado += meuValor;
+                    else if (isVencido) despVencido += meuValor;
+                }
             }
         }
-
         if (currentFilter === 'income') return tx.type === 'income';
         if (currentFilter === 'expense') return tx.type === 'expense';
-        if (currentFilter === 'pending') return (status !== 'paid' && status !== 'accepted');
+        if (currentFilter === 'pending') return (status !== 'paid' && status !== 'payment_declared');
         return true; 
     });
 
@@ -430,18 +430,23 @@ function processarDadosTabela(todasTransacoes) {
         containerLista.innerHTML = `<div class="text-center p-8 text-slate-500 font-medium">Nenhum lançamento para este mês.</div>`;
     } else {
         transacoesFiltradas.forEach(tx => {
-            const meuValor = tx.amount;
-            const isIncome = tx.type === 'income';
-            let status = tx.status || 'pending';
-            let isVencido = (tx.launchDate < hojeRealStr && status !== 'paid' && status !== 'accepted');
+            const isCreator = !tx.creatorEmail || tx.creatorEmail === user.email;
+            const myPart = tx.splitParticipants ? tx.splitParticipants.find(p => p.email === user.email) : null;
+            const meuValorRaw = myPart ? parseFloat(myPart.amount) : parseFloat(tx.amount || 0);
+            const meuValor = parseFloat(tx.isVirtualInvoice ? tx.pendingAmount : (meuValorRaw || 0)) || 0;
+            const valorOriginal = parseFloat(tx.amount || 0);
             
+            const isIncome = tx.type === 'income';
+            let status = myPart ? myPart.status : (tx.status || 'pending');
+            let isVencido = (tx.launchDate < hojeRealStr && status !== 'paid' && status !== 'accepted' && status !== 'payment_declared');
             const accIcon = tx.accountType === 'credit' ? '💳' : '🏦';
             const accColor = tx.accountType === 'credit' ? 'text-purple-400' : 'text-slate-400';
-            let metaHTML = `<span class="flex items-center gap-1"><i class="text-sm ${accColor}">${accIcon}</i> <span class="text-slate-400">${tx.accountName || 'Conta'}</span></span>`;
+            
+            const accNomeDisplay = tx.accountId ? (tx.accountName || 'Conta') : 'A Receber (Efetivar)';
+            let metaHTML = `<span class="flex items-center gap-1"><i class="text-sm ${accColor}">${accIcon}</i> <span class="text-slate-400">${accNomeDisplay}</span></span>`;
 
             let statusBadge = ''; let cardClass = ''; let tagsDescricao = ''; let acoesHTML = '';
 
-            // RENDERIZAÇÃO DA FATURA CONSOLIDADA
             if (tx.isVirtualInvoice) {
                 if (tx.isCurrentInvoice) {
                     if (status === 'paid') {
@@ -451,66 +456,68 @@ function processarDadosTabela(todasTransacoes) {
                         statusBadge = `<button class="btn-quick-efetivar-fatura px-3 py-1 rounded-full text-[10px] font-bold bg-purple-600 text-white hover:bg-purple-500 transition-colors border border-purple-400 shadow-md w-max flex items-center" data-acc="${tx.accountId}"><i class="ph-fill ph-file-text mr-1"></i> Pagar Fatura Total</button>`;
                         cardClass = 'bg-purple-900/10 border-dashed border-purple-500/30 hover:border-purple-500/50';
                     }
-                    tagsDescricao = `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/20 text-purple-400 uppercase border border-purple-500/20 mt-1 sm:mt-0">${tx.txsPendentes.length + tx.txsPagas.length} Compras</span>`;
                 } else {
-                    // FATURA EM ABERTO (GHOST ROW PARA O UTILIZADOR NÃO ENTRAR EM PÂNICO)
                     statusBadge = `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 flex items-center w-max"><i class="ph-fill ph-lock-key mr-1"></i> Acumulando...</span>`;
                     cardClass = 'opacity-50 grayscale border-dashed';
                 }
                 acoesHTML = `<span class="text-[10px] text-slate-500 font-bold uppercase mr-4">Abrir Cartão p/ Detalhes</span>`;
             } else {
-                // Conta Bancária Normal
-                if (status === 'paid' || status === 'accepted') {
+                if (status === 'paid') {
                     statusBadge = `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 flex items-center w-max"><i class="ph-fill ph-check-circle mr-1"></i> Efetivado</span>`;
                     cardClass = 'opacity-70 hover:opacity-100 border-solid';
-                } else if (tx.isProjection) {
-                    statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 flex items-center w-max border border-indigo-500/20 hover:bg-indigo-500 hover:text-white transition-colors cursor-pointer" data-id="${tx.id}" data-projdate="${tx.launchDate}"><i class="ph-fill ph-calendar-blank mr-1"></i> Projetado (Efetivar)</button>`;
-                    cardClass = 'opacity-80 border-dashed border-darkborder hover:border-indigo-500/30';
+                } else if (status === 'payment_declared') {
+                    statusBadge = `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-400 flex items-center w-max"><i class="ph-fill ph-hourglass mr-1"></i> Em Validação</span>`;
+                    cardClass = 'opacity-80 border-solid border-indigo-500/30';
+                } else if (status === 'payment_rejected') {
+                    // BOTÃO PARA EFETIVAR (TENTAR DE NOVO)
+                    statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 flex items-center w-max hover:bg-rose-500 hover:text-white transition-colors cursor-pointer border border-rose-500/30" data-id="${tx.id}"><i class="ph-fill ph-warning-circle mr-1"></i> Recusado (Tentar Novamente)</button>`;
+                    cardClass = 'bg-rose-500/5 border-solid';
                 } else if (isVencido) {
-                    statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 flex items-center w-max hover:bg-rose-500 hover:text-white transition-colors cursor-pointer border border-rose-500/30" data-id="${tx.id}"><i class="ph-fill ph-warning-circle mr-1"></i> Vencido (Efetivar)</button>`;
+                    statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 flex items-center w-max hover:bg-rose-500 hover:text-white transition-colors cursor-pointer border border-rose-500/30" data-id="${tx.id}"><i class="ph-fill ph-warning-circle mr-1"></i> Vencido</button>`;
                     cardClass = 'bg-rose-500/5 hover:bg-rose-500/10 border-solid';
                 } else {
+                    // STATUS = ACCEPTED ou PENDING NORMAL (PRONTO A PAGAR)
                     statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-500 flex items-center w-max hover:bg-amber-500 hover:text-white transition-colors cursor-pointer border border-amber-500/30" data-id="${tx.id}"><i class="ph-fill ph-clock mr-1"></i> Pendente (Efetivar)</button>`;
                     cardClass = 'border-solid';
                 }
-
-                if (tx.splitParticipants && tx.splitParticipants.length > 1) tagsDescricao += `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/20 text-indigo-400 uppercase border border-indigo-500/20 mt-1 sm:mt-0">Rateio</span> `;
-                if (tx.installmentsTotal > 1) tagsDescricao += `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-700 text-slate-300 uppercase border border-slate-600 mt-1 sm:mt-0">${tx.currentInstallment}/${tx.installmentsTotal}</span>`;
-                if (tx.recurrence === 'fixed') tagsDescricao += `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-700 text-slate-300 uppercase border border-slate-600 mt-1 sm:mt-0"><i class="ph ph-arrows-clockwise"></i> Fixo</span>`;
-
-                acoesHTML = `
-                    <button class="btn-edit text-slate-500 hover:text-indigo-400" data-id="${tx.id}" data-isproj="${tx.isProjection}" data-projdate="${tx.launchDate}"><i class="ph ph-pencil-simple text-lg pointer-events-none"></i></button>
-                    <button class="btn-delete text-slate-500 hover:text-rose-400" data-id="${tx.id}" data-isproj="${tx.isProjection}" data-projdate="${tx.launchDate}"><i class="ph ph-trash text-lg pointer-events-none"></i></button>
-                `;
+                
+                if (isCreator) {
+                    acoesHTML = `
+                        <button class="btn-edit text-slate-500 hover:text-indigo-400 p-2" data-id="${tx.id}"><i class="ph-fill ph-pencil-simple text-lg pointer-events-none"></i></button>
+                        <button class="btn-delete-acc text-slate-500 hover:text-rose-400 p-2" data-id="${tx.id}"><i class="ph-fill ph-trash text-lg pointer-events-none"></i></button>
+                    `;
+                } else {
+                    acoesHTML = `<button class="btn-reject-shared text-slate-500 hover:text-rose-400 p-2" data-id="${tx.id}" title="Recusar/Remover"><i class="ph-fill ph-trash text-lg pointer-events-none"></i></button>`;
+                }
             }
 
             containerLista.innerHTML += `
-                <div class="flex flex-col md:grid md:grid-cols-12 md:gap-4 md:items-center p-4 border-b border-darkborder hover:bg-slate-800/50 transition-colors group ${cardClass}">
+                <div class="tx-row flex flex-col md:grid md:grid-cols-12 md:gap-4 md:items-center p-4 border-b border-darkborder hover:bg-slate-800/80 transition-colors group ${cardClass} cursor-pointer border border-transparent hover:border-slate-600" data-id="${tx.id}" data-isvirtual="${tx.isVirtualInvoice || false}" data-acc="${tx.accountId}">
                     <div class="flex justify-between items-start md:items-center mb-3 md:mb-0 md:col-span-2">
                         ${statusBadge}
-                        <div class="flex space-x-3 md:hidden">${acoesHTML}</div>
+                        <div class="flex space-x-3 md:hidden z-20">${acoesHTML}</div>
                     </div>
-                    <div class="text-[11px] md:text-sm text-slate-400 md:text-slate-300 mb-2 md:mb-0 md:col-span-2">
+                    <div class="text-[11px] md:text-sm text-slate-400 md:text-slate-300 mb-2 md:mb-0 md:col-span-2 pointer-events-none">
                         <span class="md:hidden font-bold uppercase mr-1">Data:</span>${tx.launchDate.split('-').reverse().join('/')}
                     </div>
-                    <div class="mb-3 md:mb-0 md:col-span-3">
+                    <div class="mb-3 md:mb-0 md:col-span-3 pointer-events-none">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:gap-2 mb-1.5">
                             <p class="text-sm font-bold ${tx.isVirtualInvoice && tx.isCurrentInvoice ? 'text-purple-400' : 'text-white'} leading-tight">${tx.description}</p>
-                            <div class="flex gap-1">${tagsDescricao}</div>
                         </div>
                         <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">${metaHTML}</div>
                     </div>
-                    <div class="flex justify-between items-end md:contents">
+                    <div class="flex justify-between items-end md:contents pointer-events-none">
                         <div class="md:col-span-2">
                             <span class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold flex items-center w-max border" style="background-color: ${tx.categoryColor || '#64748b'}15; color: ${tx.categoryColor || '#64748b'}; border-color: ${tx.categoryColor || '#64748b'}30;">
                                 <span class="mr-1.5 text-[12px] leading-none">${tx.categoryIcon || '📌'}</span> ${tx.category || 'Outros'}
                             </span>
                         </div>
-                        <div class="text-right md:col-span-2">
+                        <div class="text-right md:col-span-2 flex flex-col items-end">
                             <p class="text-sm font-bold ${(tx.isVirtualInvoice && tx.isCurrentInvoice) ? 'text-purple-400' : (tx.isVirtualInvoice ? 'text-slate-500' : (isIncome ? 'text-emerald-500' : 'text-rose-500'))}">${isIncome?'+':'-'} R$ ${meuValor.toFixed(2)}</p>
+                            ${(tx.splitParticipants && tx.splitParticipants.length > 1 && !tx.isVirtualInvoice) ? `<p class="text-[10px] text-slate-500 font-medium mt-0.5">de R$ ${valorOriginal.toFixed(2)}</p>` : ''}
                         </div>
                     </div>
-                    <div class="hidden md:flex justify-end items-center space-x-3 md:col-span-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div class="hidden md:flex justify-end items-center space-x-3 md:col-span-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                         ${acoesHTML}
                     </div>
                 </div>
@@ -518,64 +525,101 @@ function processarDadosTabela(todasTransacoes) {
         });
     }
 
-    // EVENTOS DE CLIQUE DOS BOTÕES (INCLUINDO A FATURA GLOBAL CORRIGIDA)
+    const newContainer = containerLista.cloneNode(true);
+    containerLista.replaceWith(newContainer);
     
-    document.querySelectorAll('.btn-quick-efetivar').forEach(btn => btn.addEventListener('click', (e) => {
-        const id = e.currentTarget.dataset.id;
-        const projdate = e.currentTarget.dataset.projdate || ''; 
-        const txOriginal = todasTransacoes.find(t => t.id === id);
-        
-        document.getElementById('efetivar-id').value = id;
-        document.getElementById('efetivar-proj-date').value = projdate; 
-        document.getElementById('efetivar-data').value = projdate ? projdate : hojeRealStr; 
-        
-        document.getElementById('modal-efetivar-title').innerText = txOriginal.type === 'income' ? 'Confirmar Recebimento' : 'Confirmar Pagamento';
-        document.getElementById('modal-efetivar').classList.remove('hidden');
-    }));
+    newContainer.addEventListener('click', async (e) => {
+        const btnEfetivarFatura = e.target.closest('.btn-quick-efetivar-fatura');
+        const btnEfetivarNormal = e.target.closest('.btn-quick-efetivar');
+        const btnDel = e.target.closest('.btn-delete-acc');
+        const btnEdit = e.target.closest('.btn-edit');
+        const btnReject = e.target.closest('.btn-reject-shared');
+        const row = e.target.closest('.tx-row');
 
-    // NOVO: Evento para abrir o Modal de Pagamento da Fatura Global 
-    document.querySelectorAll('.btn-quick-efetivar-fatura').forEach(btn => btn.addEventListener('click', async (e) => {
-        const accId = e.currentTarget.dataset.acc;
-        const fatura = window.faturasFechadasGlobais[accId];
-        
-        const qContas = query(collection(db, 'accounts'), where('userId', '==', user.uid), where('type', '!=', 'credit'));
-        const snapContas = await getDocs(qContas);
-        const selectAcc = document.getElementById('fatura-global-conta-debito');
-        selectAcc.innerHTML = '';
-        
-        if (snapContas.empty) return alert("Precisa cadastrar uma Conta Corrente ou Carteira para pagar a fatura!");
-        
-        snapContas.forEach(docSnap => {
-            selectAcc.innerHTML += `<option value="${docSnap.id}">🏦 ${docSnap.data().name}</option>`;
-        });
+        if (btnEfetivarFatura) {
+            e.stopPropagation();
+            const accId = btnEfetivarFatura.dataset.acc;
+            const fatura = window.faturasFechadasGlobais[accId];
+            
+            const qContas = query(collection(db, 'accounts'), where('userId', '==', user.uid));
+            const snapContas = await getDocs(qContas);
+            const selectAcc = document.getElementById('fatura-global-conta-debito');
+            selectAcc.innerHTML = '';
+            
+            const contasValidas = snapContas.docs.map(d => ({id: d.id, ...d.data()})).filter(c => c.type !== 'credit');
+            if (contasValidas.length === 0) return alert("Precisa cadastrar uma Conta Corrente ou Carteira para pagar a fatura!");
+            contasValidas.forEach(c => selectAcc.innerHTML += `<option value="${c.id}">🏦 ${c.name}</option>`);
 
-        document.getElementById('fatura-global-acc-id').value = accId;
-        document.getElementById('fatura-global-qtd').innerText = fatura.txsPendentes.length;
-        document.getElementById('fatura-global-valor').innerText = `R$ ${fatura.pendingAmount.toFixed(2)}`;
-        document.getElementById('fatura-global-data').valueAsDate = new Date();
-        
-        document.getElementById('modal-pagar-fatura-global').classList.remove('hidden');
-    }));
+            document.getElementById('fatura-global-acc-id').value = accId;
+            document.getElementById('fatura-global-valor-texto').innerText = `R$ ${fatura.pendingAmount.toFixed(2)}`;
+            document.getElementById('fatura-global-valor-pago').value = fatura.pendingAmount.toFixed(2);
+            document.getElementById('fatura-global-data').value = new Date().toISOString().split('T')[0];
+            document.getElementById('modal-pagar-fatura-global').classList.remove('hidden');
+            return;
+        }
 
-    document.querySelectorAll('.btn-edit').forEach(btn => btn.addEventListener('click', (e) => {
-        const btnData = e.currentTarget.dataset;
-        const tx = todasTransacoes.find(t => t.id === btnData.id);
-        if (!tx) return;
-        if ((tx.recurrence === 'fixed' || tx.recurrence === 'installments') && btnData.isproj === 'true') {
-            abrirModalEscolhaRecorrencia('editar', tx, btnData.projdate);
-        } else abrirModalTransacao('editar', tx);
-    }));
+        if (btnEfetivarNormal) {
+            e.stopPropagation();
+            const id = btnEfetivarNormal.dataset.id;
+            const txOriginal = todasTransacoes.find(t => t.id === id);
+            
+            document.getElementById('efetivar-id').value = id;
+            document.getElementById('efetivar-proj-date').value = ''; 
+            document.getElementById('efetivar-data').value = new Date().toISOString().split('T')[0];
+            
+            if (!txOriginal.accountId) {
+                document.getElementById('efetivar-box-conta').classList.remove('hidden');
+                document.getElementById('efetivar-req-conta').value = 'true';
+                const selectAcc = document.getElementById('efetivar-conta');
+                selectAcc.innerHTML = '';
+                const contasValidas = window.contasGlobaisTransactions.filter(c => c.type !== 'credit');
+                contasValidas.forEach(c => selectAcc.innerHTML += `<option value="${c.id}">🏦 ${c.name}</option>`);
+            } else {
+                document.getElementById('efetivar-box-conta').classList.add('hidden');
+                document.getElementById('efetivar-req-conta').value = 'false';
+            }
 
-    document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', (e) => {
-        const btnData = e.currentTarget.dataset;
-        const tx = todasTransacoes.find(t => t.id === btnData.id);
-        if (!tx) return;
-        if ((tx.recurrence === 'fixed' || tx.recurrence === 'installments') && btnData.isproj === 'true') {
-            abrirModalEscolhaRecorrencia('apagar', tx, btnData.projdate);
-        } else if (confirm('Tem a certeza que deseja excluir?')) deleteDoc(doc(db, 'transactions', tx.id));
-    }));
+            document.getElementById('modal-efetivar-title').innerText = txOriginal.type === 'income' ? 'Confirmar Recebimento' : 'Confirmar Pagamento';
+            document.getElementById('modal-efetivar').classList.remove('hidden');
+            return;
+        }
 
-    // Renderiza Totais
+        if (btnDel) {
+            e.stopPropagation();
+            const id = btnDel.dataset.id;
+            const tx = todasTransacoes.find(t => t.id === id);
+            if (tx) await excluirTransacaoUniversal(tx);
+            return;
+        }
+
+        if (btnReject) {
+            e.stopPropagation();
+            const id = btnReject.dataset.id;
+            const tx = todasTransacoes.find(t => t.id === id);
+            if (tx) await recusarTransacaoPartilhada(tx);
+            return;
+        }
+
+        if (btnEdit) {
+            e.stopPropagation();
+            const id = btnEdit.dataset.id;
+            const tx = todasTransacoes.find(t => t.id === id);
+            if (tx) abrirModalTransacao('editar', tx);
+            return;
+        }
+
+        if (row) {
+            const isVirtual = row.dataset.isvirtual === 'true';
+            if (isVirtual) {
+                const contaObj = window.contasGlobaisTransactions.find(c => c.id === row.dataset.acc);
+                if (contaObj) abrirDetalheConta(contaObj);
+            } else {
+                const tx = todasTransacoes.find(t => t.id === row.dataset.id);
+                if (tx) abrirDetalheTransacao(tx); 
+            }
+        }
+    });
+
     const saldoAtual = recEfetivado - despEfetivado;
     const saldoProjetado = recPrevisto - despPrevisto;
     cardsTotais.innerHTML = `
@@ -601,37 +645,4 @@ function processarDadosTabela(todasTransacoes) {
             </div>
         </div>
     `;
-}
-
-// LÓGICA DO MODAL DE ESCOLHA DE RECORRÊNCIA MANTIDA
-export function limparListenerLancamentosGlobal() {} 
-function abrirModalEscolhaRecorrencia(acao, txOriginal, projDate = null) {
-    const modal = document.getElementById('modal-recorrencia'); modal.classList.remove('hidden');
-    const btnSingle = document.getElementById('btn-rec-single'); const btnForward = document.getElementById('btn-rec-forward'); const btnAll = document.getElementById('btn-rec-all');
-    const novoBtnSingle = btnSingle.cloneNode(true); btnSingle.replaceWith(novoBtnSingle);
-    const novoBtnForward = btnForward.cloneNode(true); btnForward.replaceWith(novoBtnForward);
-    const novoBtnAll = btnAll.cloneNode(true); btnAll.replaceWith(novoBtnAll);
-    document.getElementById('btn-cancel-rec').onclick = () => modal.classList.add('hidden');
-
-    const keyMes = projDate ? projDate.substring(0, 7) : txOriginal.launchDate.substring(0, 7);
-
-    novoBtnSingle.addEventListener('click', async () => {
-        modal.classList.add('hidden');
-        if (acao === 'apagar') {
-            const overrides = txOriginal.overrides || {}; overrides[keyMes] = { deleted: true };
-            await updateDoc(doc(db, 'transactions', txOriginal.id), { overrides });
-        } else abrirModalTransacao('editar', { ...txOriginal, launchDate: projDate || txOriginal.launchDate, isOverrideMode: true, overrideKey: keyMes });
-    });
-    novoBtnForward.addEventListener('click', async () => {
-        modal.classList.add('hidden');
-        const dataAnterior = new Date(`${keyMes}-01T12:00:00`); dataAnterior.setMonth(dataAnterior.getMonth() - 1);
-        const endKey = `${dataAnterior.getFullYear()}-${String(dataAnterior.getMonth() + 1).padStart(2, '0')}`;
-        if (acao === 'apagar') await updateDoc(doc(db, 'transactions', txOriginal.id), { endDate: endKey });
-        else { await updateDoc(doc(db, 'transactions', txOriginal.id), { endDate: endKey }); abrirModalTransacao('criar', { ...txOriginal, id: null, launchDate: projDate || txOriginal.launchDate }); }
-    });
-    novoBtnAll.addEventListener('click', async () => {
-        modal.classList.add('hidden');
-        if (acao === 'apagar') await deleteDoc(doc(db, 'transactions', txOriginal.id));
-        else abrirModalTransacao('editar', txOriginal); 
-    });
 }

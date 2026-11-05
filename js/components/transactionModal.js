@@ -1,29 +1,149 @@
 // js/components/transactionModal.js
 import { auth, db } from '../config/firebase.js';
 import { processarNotificacaoEmail } from '../services/emailService.js';
-import { collection, addDoc, updateDoc, doc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, query, where, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 let isModalInjected = false;
 let modoAtual = 'criar';
 let txEditId = null;
 let txEditDadosAntigos = null;
 window.categoriasCarregadas = [];
-window.todasContasCarregadas = []; // Nova variável para guardar contas e filtrar
+window.todasContasCarregadas = []; 
+
+export async function excluirTransacaoUniversal(tx) {
+    if (!confirm('Tem a certeza que deseja excluir este lançamento globalmente?')) return false;
+    try {
+        if (tx.linkedPaymentId) {
+            const q = query(collection(db, 'transactions'), where('linkedPaymentId', '==', tx.linkedPaymentId));
+            const snaps = await getDocs(q);
+            const promises = [];
+            snaps.forEach(docSnap => promises.push(deleteDoc(docSnap.ref)));
+            await Promise.all(promises);
+        } else {
+            await deleteDoc(doc(db, 'transactions', tx.id));
+        }
+        return true;
+    } catch (error) {
+        console.error(error); alert("Erro ao excluir transação."); return false;
+    }
+}
+
+export async function recusarTransacaoPartilhada(tx) {
+    if (!confirm('Deseja remover este lançamento da sua conta? O criador será notificado e o valor voltará para a Inbox dele.')) return false;
+    try {
+        const user = auth.currentUser;
+        const novaLista = [...tx.splitParticipants];
+        const meuIndex = novaLista.findIndex(p => p.email === user.email);
+        if (meuIndex !== -1) {
+            novaLista[meuIndex].status = 'rejected';
+        }
+        const newMsg = { sender: 'SYSTEM', text: `${user.email} removeu a despesa do seu extrato (Recusado).`, type: 'system', time: new Date().toISOString() };
+        
+        await updateDoc(doc(db, 'transactions', tx.id), {
+            splitParticipants: novaLista,
+            messages: arrayUnion(newMsg)
+        });
+        return true;
+    } catch (e) {
+        console.error(e); alert("Erro ao recusar."); return false;
+    }
+}
+
+export function abrirDetalheTransacao(tx) {
+    const user = auth.currentUser;
+    if (!isModalInjected) { injetarHTMLDoModal(); configurarEventosBase(); configurarEventosGestorCategorias(); isModalInjected = true; }
+    
+    document.getElementById('drawer-tx-backdrop').classList.remove('hidden');
+    document.getElementById('drawer-tx-detail').classList.remove('hidden');
+    
+    setTimeout(() => {
+        document.getElementById('drawer-tx-backdrop').classList.remove('opacity-0');
+        document.getElementById('drawer-tx-panel').classList.remove('translate-x-full');
+    }, 10);
+
+    const isCreator = !tx.creatorEmail || tx.creatorEmail === user.email;
+    const isIncome = tx.type === 'income';
+    const myPart = tx.splitParticipants ? tx.splitParticipants.find(p => p.email === user.email) : null;
+    const meuValor = myPart ? parseFloat(myPart.amount) : parseFloat(tx.amount || 0);
+
+    document.getElementById('dt-icon').className = `w-12 h-12 flex items-center justify-center rounded-xl border text-2xl shadow-inner ${isIncome ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : 'bg-rose-500/20 text-rose-500 border-rose-500/30'}`;
+    document.getElementById('dt-icon').innerHTML = isIncome ? '<i class="ph-fill ph-trend-up"></i>' : '<i class="ph-fill ph-trend-down"></i>';
+    
+    document.getElementById('dt-title').innerText = tx.description;
+    document.getElementById('dt-amount').innerText = `R$ ${meuValor.toFixed(2)}`;
+    document.getElementById('dt-amount').className = `text-4xl font-bold mt-2 ${isIncome ? 'text-emerald-500' : 'text-rose-500'}`;
+    
+    const myStatus = myPart ? myPart.status : (tx.status || 'pending');
+    document.getElementById('dt-status').innerHTML = (myStatus === 'paid' || myStatus === 'accepted') ? `<span class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400"><i class="ph-fill ph-check-circle"></i> Efetivado</span>` : `<span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-500"><i class="ph-fill ph-clock"></i> Pendente</span>`;
+
+    document.getElementById('dt-date').innerText = tx.launchDate.split('-').reverse().join('/');
+    
+    const catColor = tx.categoryColor || '#64748b';
+    document.getElementById('dt-category').innerHTML = `<span class="mr-1.5">${tx.categoryIcon || '📌'}</span> ${tx.category || 'Outros'}`;
+    document.getElementById('dt-category').style.backgroundColor = `${catColor}20`;
+    document.getElementById('dt-category').style.color = catColor;
+    document.getElementById('dt-category').style.borderColor = `${catColor}40`;
+
+    document.getElementById('dt-account').innerHTML = `<i class="ph-fill ${tx.accountType === 'credit' ? 'ph-credit-card text-purple-400' : 'ph-bank text-indigo-400'} text-lg"></i> ${tx.accountName || 'Desconhecida'}`;
+
+    let extras = '';
+    
+    if (tx.splitParticipants && tx.splitParticipants.length > 1 && !tx.isVirtualInvoice) {
+        extras += `<div class="flex justify-between items-center border-b border-slate-700/50 pb-3 mt-4"><span class="text-xs font-bold text-slate-400 uppercase">Valor Total Original</span><span class="text-sm font-bold text-slate-300">R$ ${parseFloat(tx.amount).toFixed(2)}</span></div>`;
+        if (!isCreator) {
+            extras += `<div class="flex justify-between items-center border-b border-slate-700/50 pb-3 mt-4"><span class="text-xs font-bold text-slate-400 uppercase">Criado por</span><span class="text-sm font-bold text-indigo-400 flex items-center gap-1.5"><i class="ph-fill ph-user-circle"></i> ${tx.creatorEmail.split('@')[0]}</span></div>`;
+        }
+    }
+
+    if (tx.recurrence === 'installments') extras += `<div class="flex justify-between items-center text-sm font-bold text-slate-300 border-b border-slate-700/50 pb-3 mt-4"><span class="text-slate-400 uppercase text-xs">Parcela</span> ${tx.currentInstallment} de ${tx.installmentsTotal}</div>`;
+    if (tx.recurrence === 'fixed') extras += `<div class="flex items-center text-sm font-bold text-indigo-400 mt-4"><i class="ph-bold ph-arrows-clockwise mr-2"></i> Despesa Fixa</div>`;
+    
+    document.getElementById('dt-extras').innerHTML = extras;
+
+    const btnDel = document.getElementById('btn-dt-delete');
+    const btnEdit = document.getElementById('btn-dt-edit');
+    
+    const newBtnDel = btnDel.cloneNode(true); btnDel.replaceWith(newBtnDel);
+    const newBtnEdit = btnEdit.cloneNode(true); btnEdit.replaceWith(newBtnEdit);
+
+    if (isCreator) {
+        newBtnEdit.classList.remove('hidden');
+        newBtnDel.innerHTML = '<i class="ph ph-trash text-lg"></i> Apagar Total';
+        newBtnDel.addEventListener('click', async () => {
+            const deleted = await excluirTransacaoUniversal(tx);
+            if(deleted) fecharDetalheTransacao();
+        });
+        newBtnEdit.addEventListener('click', () => {
+            fecharDetalheTransacao();
+            setTimeout(() => abrirModalTransacao('editar', tx), 300);
+        });
+    } else {
+        newBtnEdit.classList.add('hidden'); 
+        newBtnDel.innerHTML = '<i class="ph ph-trash text-lg"></i> Remover/Recusar minha parte';
+        newBtnDel.addEventListener('click', async () => {
+            const rejected = await recusarTransacaoPartilhada(tx);
+            if(rejected) fecharDetalheTransacao();
+        });
+    }
+}
+
+function fecharDetalheTransacao() {
+    document.getElementById('drawer-tx-panel').classList.add('translate-x-full');
+    document.getElementById('drawer-tx-backdrop').classList.add('opacity-0');
+    setTimeout(() => {
+        document.getElementById('drawer-tx-detail').classList.add('hidden');
+        document.getElementById('drawer-tx-backdrop').classList.add('hidden');
+    }, 300);
+}
 
 export async function abrirModalTransacao(modo = 'criar', dados = null) {
     const user = auth.currentUser;
     if (!user) return;
-
     modoAtual = modo;
     txEditId = dados ? dados.id : null;
     txEditDadosAntigos = dados;
 
-    if (!isModalInjected) {
-        injetarHTMLDoModal();
-        configurarEventosBase();
-        configurarEventosGestorCategorias();
-        isModalInjected = true;
-    }
+    if (!isModalInjected) { injetarHTMLDoModal(); configurarEventosBase(); configurarEventosGestorCategorias(); isModalInjected = true; }
 
     const form = document.getElementById('form-transaction');
     form.reset();
@@ -31,27 +151,25 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
     document.getElementById('select-category').value = ''; 
     document.getElementById('custom-cat-selected').innerHTML = '<span class="text-slate-500 text-sm">A carregar...</span>';
     
-    // Estado inicial: Assume que é despesa e sai de uma Conta Corrente (wallet)
     window.txState = {
-        type: 'expense',
-        recurrence: 'none',
-        splitMode: 'ind',
+        type: 'expense', recurrence: 'none', splitMode: 'ind',
         originType: (dados && dados.accountType === 'credit') ? 'credit' : 'wallet',
         participants: [{ id: 'me', name: 'Sua Parte', email: user.email, amount: 0 }]
     };
+    
+    // FORÇA O BLOQUEIO VISUAL IMEDIATO DO VENCIMENTO ANTES DO CARREGAMENTO
+    atualizarToggleOrigemUI();
     atualizarUI();
 
     const btnSubmit = document.getElementById('btn-submit-tx');
-    btnSubmit.innerText = 'A carregar...';
-    btnSubmit.disabled = true;
+    btnSubmit.innerText = 'A carregar...'; btnSubmit.disabled = true;
 
     try {
         const qContas = query(collection(db, 'accounts'), where('userId', '==', user.uid));
         const snapContas = await getDocs(qContas);
         window.todasContasCarregadas = snapContas.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        // Atualiza a UI do toggle e preenche o select
-        atualizarToggleOrigem();
+        atualizarToggleOrigemUI(); // Re-aplica após carregar os dados reais
 
         const qEspacos = query(collection(db, 'spaces'), where('participantEmails', 'array-contains', user.email));
         const snapEspacos = await getDocs(qEspacos);
@@ -60,78 +178,105 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
         window.espacosCarregados = [];
         snapEspacos.forEach(docSnap => {
             const sp = docSnap.data();
-            if(!sp.isIndividual) {
-                window.espacosCarregados.push({ id: docSnap.id, ...sp });
-                selectSpace.innerHTML += `<option value="${docSnap.id}">${sp.icon} ${sp.name}</option>`;
-            }
+            if(!sp.isIndividual) { window.espacosCarregados.push({ id: docSnap.id, ...sp }); selectSpace.innerHTML += `<option value="${docSnap.id}">${sp.icon} ${sp.name}</option>`; }
         });
 
         await carregarCategorias(dados ? dados.category : null);
 
         if (modo === 'editar' && dados) {
             document.getElementById('modal-tx-title').innerText = dados.isOverrideMode ? 'Editar Exceção (Este Mês)' : 'Editar Lançamento';
-            if (dados.type === 'income') {
-                window.txState.type = 'income';
-                document.getElementById('btn-type-income').click();
-            } else {
-                window.txState.type = 'expense';
-                document.getElementById('btn-type-expense').click();
+            
+            if (dados.type === 'income') { window.txState.type = 'income'; } 
+            else { window.txState.type = 'expense'; }
+            
+            window.txState.recurrence = dados.recurrence || 'none';
+            if (dados.recurrence === 'installments') {
+                document.getElementById('current-inst').value = dados.currentInstallment || '';
+                document.getElementById('total-inst').value = dados.installmentsTotal || '';
             }
+            atualizarUI();
+            
             document.getElementById('input-desc').value = dados.description || '';
             document.getElementById('input-amount').value = dados.amount || '';
             document.getElementById('input-date').value = dados.launchDate || '';
             
-            if (dados.accountId) {
-                document.getElementById('select-account').value = dados.accountId;
-                document.getElementById('select-account').dispatchEvent(new Event('change'));
+            if (dados.accountId) { 
+                document.getElementById('select-account').value = dados.accountId; 
             }
-            if (dados.spaceId) {
-                selectSpace.value = dados.spaceId;
-                document.getElementById('btn-split-space').click();
+            
+            window.txState.splitMode = dados.splitType || 'ind';
+            if (dados.splitParticipants && dados.splitParticipants.length > 0) {
+                window.txState.participants = dados.splitParticipants.map(p => ({
+                    id: p.email === user.email ? 'me' : (p.id || Math.random().toString(36).substr(2, 5)),
+                    name: p.email === user.email ? 'Sua Parte' : (p.name || p.email),
+                    email: p.email,
+                    amount: p.amount || 0
+                }));
             }
+
+            ['ind', 'space', 'avulso'].forEach(m => {
+                document.getElementById(`btn-split-${m}`).className = 'split-btn flex-1 py-2 text-xs font-bold rounded-lg border bg-slate-800 border-slate-700 text-slate-400';
+            });
+            document.getElementById(`btn-split-${window.txState.splitMode}`).className = 'split-btn flex-1 py-2 text-xs font-bold rounded-lg border bg-indigo-600 border-indigo-500 text-white';
+
+            document.getElementById('box-space').classList.add('hidden'); 
+            document.getElementById('box-avulso').classList.add('hidden'); 
+            document.getElementById('box-math').classList.add('hidden');
+
+            if (window.txState.splitMode === 'space') {
+                document.getElementById('box-space').classList.remove('hidden');
+                document.getElementById('box-math').classList.remove('hidden');
+                if (dados.spaceId) selectSpace.value = dados.spaceId;
+            } else if (window.txState.splitMode === 'avulso') {
+                document.getElementById('box-avulso').classList.remove('hidden');
+                document.getElementById('box-math').classList.remove('hidden');
+                renderAvulsoInputs();
+            }
+            
+            renderMathInputs(); 
         } else {
             document.getElementById('modal-tx-title').innerText = 'Novo Lançamento';
         }
-
-        btnSubmit.innerText = modo === 'editar' ? 'Salvar Alterações' : 'Salvar Lançamento';
-        btnSubmit.disabled = false;
-    } catch (e) {
-        console.error("Erro ao carregar dados do modal:", e);
-        btnSubmit.innerText = 'Erro ao carregar';
-    }
+        btnSubmit.innerText = modo === 'editar' ? 'Salvar Alterações' : 'Salvar Lançamento'; btnSubmit.disabled = false;
+    } catch (e) { console.error("Erro:", e); btnSubmit.innerText = 'Erro ao carregar'; }
 
     document.getElementById('modal-overlay').classList.remove('hidden');
 }
 
-// NOVA FUNÇÃO: Atualiza o Toggle de Origem e preenche o Select
-function atualizarToggleOrigem() {
-    const btnWallet = document.getElementById('btn-orig-wallet');
-    const btnCredit = document.getElementById('btn-orig-credit');
+// CORREÇÃO CIRÚRGICA DO VENCIMENTO: Totalmente desvinculado do HTML event
+function atualizarToggleOrigemUI() {
+    const btnWallet = document.getElementById('btn-orig-wallet'); 
+    const btnCredit = document.getElementById('btn-orig-credit'); 
     const selectAcc = document.getElementById('select-account');
     
-    if (window.txState.originType === 'credit') {
+    const isCredit = window.txState.originType === 'credit';
+
+    if (isCredit) {
         btnCredit.className = 'flex-1 py-2 text-sm font-bold rounded-lg bg-slate-700 text-purple-400 shadow transition-all flex items-center justify-center gap-2';
         btnWallet.className = 'flex-1 py-2 text-sm font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all flex items-center justify-center gap-2';
+        
+        // ESCONDE O VENCIMENTO DE FORMA INQUEBRÁVEL
+        document.getElementById('box-due-date').classList.add('hidden');
+        document.getElementById('box-credit-info').classList.remove('hidden');
     } else {
         btnWallet.className = 'flex-1 py-2 text-sm font-bold rounded-lg bg-slate-700 text-indigo-400 shadow transition-all flex items-center justify-center gap-2';
         btnCredit.className = 'flex-1 py-2 text-sm font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all flex items-center justify-center gap-2';
+        
+        // MOSTRA O VENCIMENTO DE FORMA INQUEBRÁVEL
+        document.getElementById('box-due-date').classList.remove('hidden');
+        document.getElementById('box-credit-info').classList.add('hidden');
     }
 
-    selectAcc.innerHTML = '';
-    const contasFiltradas = window.todasContasCarregadas.filter(c => 
-        window.txState.originType === 'credit' ? c.type === 'credit' : c.type !== 'credit'
-    );
+    if (!window.todasContasCarregadas) return;
 
+    selectAcc.innerHTML = '';
+    const contasFiltradas = window.todasContasCarregadas.filter(c => isCredit ? c.type === 'credit' : c.type !== 'credit');
+    
     if (contasFiltradas.length === 0) {
         selectAcc.innerHTML = '<option value="" disabled selected>Nenhuma cadastrada</option>';
     } else {
-        contasFiltradas.forEach(acc => {
-            const icon = acc.type === 'credit' ? '💳' : '🏦';
-            selectAcc.innerHTML += `<option value="${acc.id}" data-type="${acc.type}">${icon} ${acc.name}</option>`;
-        });
+        contasFiltradas.forEach(acc => selectAcc.innerHTML += `<option value="${acc.id}" data-type="${acc.type}">${acc.type === 'credit' ? '💳' : '🏦'} ${acc.name}</option>`);
     }
-    
-    selectAcc.dispatchEvent(new Event('change'));
 }
 
 async function carregarCategorias(categoriaSelecionada = null) {
@@ -143,59 +288,40 @@ async function carregarCategorias(categoriaSelecionada = null) {
         window.categoriasCarregadas = [];
         if (snap.empty) {
             const defaultCats = [
-                { nome: 'Alimentação', icon: '🍔', color: '#f97316' },
-                { nome: 'Casa', icon: '🏠', color: '#3b82f6' },
-                { nome: 'Transporte', icon: '🚗', color: '#0ea5e9' },
-                { nome: 'Saúde', icon: '💊', color: '#ef4444' }
+                { nome: 'Alimentação', icon: '🍔', color: '#f97316' }, { nome: 'Casa', icon: '🏠', color: '#3b82f6' },
+                { nome: 'Transporte', icon: '🚗', color: '#0ea5e9' }, { nome: 'Saúde', icon: '💊', color: '#ef4444' }
             ];
-            for (let c of defaultCats) {
-                const docRef = await addDoc(collection(db, 'categories'), { ...c, userId: user.uid });
-                window.categoriasCarregadas.push({ id: docRef.id, ...c });
-            }
+            for (let c of defaultCats) { const docRef = await addDoc(collection(db, 'categories'), { ...c, userId: user.uid }); window.categoriasCarregadas.push({ id: docRef.id, ...c }); }
         } else {
-            window.categoriasCarregadas = snap.docs.map(d => {
-                const data = d.data();
-                return { id: d.id, nome: data.nome || data.name || 'Sem Nome', icon: data.icon || '📌', color: data.color || '#64748b', userId: data.userId || user.uid };
-            });
+            window.categoriasCarregadas = snap.docs.map(d => { const data = d.data(); return { id: d.id, nome: data.nome || data.name || 'Sem Nome', icon: data.icon || '📌', color: data.color || '#64748b', userId: data.userId || user.uid }; });
         }
         window.categoriasCarregadas.sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
         renderizarDropdownCustomizado(categoriaSelecionada);
-        renderizarListaCategoriasNoGestor();
     } catch (e) { console.error("Erro categorias:", e); }
 }
 
 function renderizarDropdownCustomizado(selecionada = null) {
-    const dropdownList = document.getElementById('custom-cat-dropdown');
-    const inputHidden = document.getElementById('select-category');
-    const selectedDisplay = document.getElementById('custom-cat-selected');
+    const dropdownList = document.getElementById('custom-cat-dropdown'); const inputHidden = document.getElementById('select-category'); const selectedDisplay = document.getElementById('custom-cat-selected');
     dropdownList.innerHTML = '';
     window.categoriasCarregadas.forEach(cat => {
-        const div = document.createElement('div');
-        div.className = "px-4 py-2 hover:bg-slate-700 cursor-pointer transition-colors flex items-center";
+        const div = document.createElement('div'); div.className = "px-4 py-2 hover:bg-slate-700 cursor-pointer transition-colors flex items-center";
         div.innerHTML = `<span class="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center border" style="background-color: ${cat.color}15; color: ${cat.color}; border-color: ${cat.color}30;"><span class="mr-1.5 text-sm">${cat.icon}</span> ${cat.nome}</span>`;
-        div.addEventListener('click', () => {
-            inputHidden.value = cat.nome;
-            selectedDisplay.innerHTML = div.innerHTML; 
-            dropdownList.classList.add('hidden');
-        });
+        div.addEventListener('click', () => { inputHidden.value = cat.nome; selectedDisplay.innerHTML = div.innerHTML; dropdownList.classList.add('hidden'); });
         dropdownList.appendChild(div);
     });
     if (selecionada) {
         const cat = window.categoriasCarregadas.find(c => c.nome === selecionada);
-        if (cat) {
-            inputHidden.value = cat.nome;
-            selectedDisplay.innerHTML = `<span class="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center border" style="background-color: ${cat.color}15; color: ${cat.color}; border-color: ${cat.color}30;"><span class="mr-1.5 text-sm">${cat.icon}</span> ${cat.nome}</span>`;
-        }
+        if (cat) { inputHidden.value = cat.nome; selectedDisplay.innerHTML = `<span class="px-2.5 py-1 rounded-lg text-xs font-bold flex items-center border" style="background-color: ${cat.color}15; color: ${cat.color}; border-color: ${cat.color}30;"><span class="mr-1.5 text-sm">${cat.icon}</span> ${cat.nome}</span>`; }
     } else if (window.categoriasCarregadas.length > 0) dropdownList.firstChild.click();
 }
-
-function renderizarListaCategoriasNoGestor() { /* Mantido inalterado - Oculto para resumir o core */ }
-function configurarEventosGestorCategorias() { /* Mantido inalterado - Oculto para resumir o core */ }
+function configurarEventosGestorCategorias() {}
 
 function injetarHTMLDoModal() {
     if(document.getElementById('modal-overlay')) return;
+    
     const modalHTML = `
-    <div id="modal-overlay" class="fixed inset-0 bg-black/80 z-[105] flex justify-center items-center p-4 hidden animate-fade-in">
+    <!-- MODAL DE EDIÇÃO Z-[140] -->
+    <div id="modal-overlay" class="fixed inset-0 bg-black/80 z-[140] flex justify-center items-center p-4 hidden animate-fade-in">
         <div class="bg-darkcard w-full max-w-2xl rounded-3xl shadow-2xl border border-darkborder flex flex-col max-h-[95vh]">
             <div class="p-6 border-b border-darkborder flex justify-between items-center bg-slate-800/50 shrink-0 rounded-t-3xl">
                 <h2 id="modal-tx-title" class="text-xl font-bold text-white">Novo Lançamento</h2>
@@ -223,13 +349,12 @@ function injetarHTMLDoModal() {
                         <label class="block text-xs font-bold text-slate-400 mb-1">Categoria</label>
                         <div class="flex gap-2">
                             <div id="custom-cat-selector" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white cursor-pointer flex items-center justify-between hover:border-indigo-500 transition-colors h-[52px]">
-                                <div id="custom-cat-selected" class="flex items-center gap-2 overflow-hidden"><span class="text-slate-500 text-sm">A carregar...</span></div>
+                                <div id="custom-cat-selected" class="flex items-center gap-2 overflow-hidden"></div>
                                 <i class="ph ph-caret-down text-slate-400"></i>
                             </div>
                             <input type="hidden" id="select-category" required />
-                            <button type="button" id="btn-manage-categories" title="Gerir Categorias" class="bg-slate-800 border border-slate-700 rounded-xl px-4 text-indigo-400 hover:bg-slate-700 transition-colors shrink-0 flex items-center justify-center"><i class="ph ph-gear text-xl"></i></button>
                         </div>
-                        <div id="custom-cat-dropdown" class="hidden absolute top-[75px] left-0 w-[calc(100%-60px)] bg-slate-800 border border-slate-600 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto py-2"></div>
+                        <div id="custom-cat-dropdown" class="hidden absolute top-[75px] left-0 w-full bg-slate-800 border border-slate-600 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto py-2"></div>
                     </div>
 
                     <div class="md:col-span-12">
@@ -256,13 +381,10 @@ function injetarHTMLDoModal() {
                 <div class="space-y-4 bg-slate-800/30 p-4 rounded-xl border border-slate-700/50">
                     <div>
                         <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">De onde sai o dinheiro?</label>
-                        
-                        <!-- NOVO: TOGGLE BANCO VS CARTÃO -->
                         <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-700 mb-3">
                             <button type="button" id="btn-orig-wallet" class="flex-1 py-2 text-sm font-bold rounded-lg bg-slate-700 text-indigo-400 shadow transition-all flex items-center justify-center gap-2"><i class="ph-fill ph-bank"></i> Conta Corrente</button>
                             <button type="button" id="btn-orig-credit" class="flex-1 py-2 text-sm font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all flex items-center justify-center gap-2"><i class="ph-fill ph-credit-card"></i> Cartão Crédito</button>
                         </div>
-
                         <select id="select-account" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500"></select>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
@@ -306,24 +428,60 @@ function injetarHTMLDoModal() {
                 </div>
             </form>
         </div>
-    </div>`;
+    </div>
+    
+    <!-- NOVA GAVETA VIEW-MODE Z-[125] -->
+    <div id="drawer-tx-detail" class="fixed inset-0 z-[125] flex justify-end hidden">
+        <div id="drawer-tx-backdrop" class="absolute inset-0 bg-black/60 transition-opacity duration-300 opacity-0 cursor-pointer"></div>
+        <div id="drawer-tx-panel" class="w-full md:w-[450px] bg-slate-900 border-l border-slate-700 h-full shadow-2xl relative flex flex-col transform translate-x-full transition-transform duration-300">
+            <div class="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800 shrink-0">
+                <div class="flex items-center gap-3">
+                    <div id="dt-icon" class="w-10 h-10 flex items-center justify-center rounded-xl border text-xl shadow-inner"></div>
+                    <h2 id="dt-title" class="text-xl font-bold text-white leading-tight"></h2>
+                </div>
+                <button id="btn-close-tx-drawer" class="text-slate-400 hover:text-rose-500 bg-slate-700 w-8 h-8 rounded-full flex items-center justify-center transition-colors"><i class="ph ph-x text-lg"></i></button>
+            </div>
+            <div class="p-6 flex-1 overflow-y-auto space-y-6 bg-darkcard">
+                <div class="text-center">
+                    <p class="text-sm text-slate-400 font-bold uppercase tracking-wider mb-1">A sua Parte / Valor</p>
+                    <p id="dt-amount" class="text-4xl font-bold"></p>
+                    <p id="dt-status" class="mt-2 text-sm font-bold"></p>
+                </div>
+                <div class="space-y-4 bg-slate-800/50 p-5 rounded-2xl border border-slate-700/50">
+                    <div class="flex justify-between items-center border-b border-slate-700/50 pb-3">
+                        <span class="text-xs font-bold text-slate-400 uppercase">Data Movimentação</span>
+                        <span id="dt-date" class="text-sm font-bold text-white"></span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-slate-700/50 pb-3">
+                        <span class="text-xs font-bold text-slate-400 uppercase">Categoria</span>
+                        <span id="dt-category" class="text-sm font-bold flex items-center gap-1.5 px-2.5 py-1 rounded-lg border"></span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-bold text-slate-400 uppercase">Origem</span>
+                        <span id="dt-account" class="text-sm font-bold text-slate-300 flex items-center gap-1.5"></span>
+                    </div>
+                </div>
+                <div id="dt-extras" class="space-y-1"></div>
+            </div>
+            <div class="p-6 border-t border-slate-700 flex gap-3 shrink-0 bg-slate-800">
+                <button id="btn-dt-delete" class="flex-1 py-3 bg-rose-500/10 text-rose-400 font-bold rounded-xl hover:bg-rose-500 hover:text-white transition-colors flex items-center justify-center gap-2"><i class="ph ph-trash text-lg"></i></button>
+                <button id="btn-dt-edit" class="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 shadow-lg shadow-indigo-500/30 transition-colors flex items-center justify-center gap-2"><i class="ph ph-pencil-simple text-lg"></i> Editar Lançamento</button>
+            </div>
+        </div>
+    </div>
+    `;
     document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    document.getElementById('drawer-tx-backdrop').addEventListener('click', fecharDetalheTransacao);
+    document.getElementById('btn-close-tx-drawer').addEventListener('click', fecharDetalheTransacao);
 }
 
 function configurarEventosBase() {
     const user = auth.currentUser;
     document.getElementById('btn-close-modal').addEventListener('click', () => document.getElementById('modal-overlay').classList.add('hidden'));
 
-    // Eventos do Toggle de Origem
-    document.getElementById('btn-orig-wallet').addEventListener('click', () => {
-        window.txState.originType = 'wallet';
-        atualizarToggleOrigem();
-    });
-    
-    document.getElementById('btn-orig-credit').addEventListener('click', () => {
-        window.txState.originType = 'credit';
-        atualizarToggleOrigem();
-    });
+    document.getElementById('btn-orig-wallet').addEventListener('click', () => { window.txState.originType = 'wallet'; atualizarToggleOrigemUI(); });
+    document.getElementById('btn-orig-credit').addEventListener('click', () => { window.txState.originType = 'credit'; atualizarToggleOrigemUI(); });
 
     const catSelectorBox = document.getElementById('custom-cat-selector');
     const catDropdown = document.getElementById('custom-cat-dropdown');
@@ -336,23 +494,13 @@ function configurarEventosBase() {
     document.getElementById('btn-rec-fixed').addEventListener('click', () => { window.txState.recurrence = 'fixed'; atualizarUI(); });
     document.getElementById('btn-rec-inst').addEventListener('click', () => { window.txState.recurrence = 'installments'; atualizarUI(); });
 
-    document.getElementById('select-account').addEventListener('change', (e) => {
-        if (!e.target.options.length) return;
-        const type = e.target.options[e.target.selectedIndex].dataset.type;
-        document.getElementById('box-due-date').classList.toggle('hidden', type === 'credit');
-        document.getElementById('box-credit-info').classList.toggle('hidden', type !== 'credit');
-    });
-
     document.getElementById('btn-split-ind').addEventListener('click', () => { window.txState.splitMode = 'ind'; setupParticipants(); });
     document.getElementById('btn-split-space').addEventListener('click', () => { window.txState.splitMode = 'space'; setupParticipants(); });
     document.getElementById('btn-split-avulso').addEventListener('click', () => { window.txState.splitMode = 'avulso'; setupParticipants(); });
 
     document.getElementById('space-selector').addEventListener('change', (e) => {
         const sp = window.espacosCarregados.find(s => s.id === e.target.value);
-        if (sp) {
-            window.txState.participants = sp.participantEmails.map(email => ({ id: email === user.email ? 'me' : email, name: email === user.email ? 'Sua Parte' : email, email: email, amount: 0 }));
-            calcularMatematicaBase();
-        }
+        if (sp) { window.txState.participants = sp.participantEmails.map(email => ({ id: email === user.email ? 'me' : email, name: email === user.email ? 'Sua Parte' : email, email: email, amount: 0 })); calcularMatematicaBase(); }
     });
 
     document.getElementById('btn-add-email').addEventListener('click', () => {
@@ -368,7 +516,6 @@ function configurarEventosBase() {
         
         const catNome = document.getElementById('select-category').value;
         if (!catNome) return alert("Por favor, selecione uma categoria.");
-
         const accSelect = document.getElementById('select-account');
         if (accSelect.options.length === 0 || !accSelect.value) return alert('Nenhuma conta selecionada.');
 
@@ -446,7 +593,6 @@ function setupParticipants() {
     const s = window.txState;
     document.getElementById('btn-split-ind').className = document.getElementById('btn-split-space').className = document.getElementById('btn-split-avulso').className = 'split-btn flex-1 py-2 text-xs font-bold rounded-lg border bg-slate-800 border-slate-700 text-slate-400';
     document.getElementById(`btn-split-${s.splitMode}`).className = 'split-btn flex-1 py-2 text-xs font-bold rounded-lg border bg-indigo-600 border-indigo-500 text-white';
-
     document.getElementById('box-space').classList.add('hidden'); document.getElementById('box-avulso').classList.add('hidden'); document.getElementById('box-math').classList.add('hidden');
 
     if(s.splitMode === 'ind') { s.participants = [{ id: 'me', name: 'Sua Parte', email: auth.currentUser.email, amount: 0 }]; } 
