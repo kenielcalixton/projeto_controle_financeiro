@@ -1,6 +1,6 @@
 // js/components/transactions.js
 import { auth, db } from '../config/firebase.js';
-import { collection, query, where, onSnapshot, doc, deleteDoc, getDoc, updateDoc, getDocs, addDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, where, onSnapshot, doc, deleteDoc, getDoc, updateDoc, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { abrirModalTransacao, abrirDetalheTransacao, excluirTransacaoUniversal, recusarTransacaoPartilhada } from './transactionModal.js';
 import { abrirDetalheConta } from './accountDetails.js';
 
@@ -40,8 +40,8 @@ export function renderizarLancamentos() {
 
             <div class="bg-darkcard border border-darkborder rounded-3xl flex-1 overflow-hidden shadow-sm flex flex-col min-h-[300px]">
                 <div class="hidden md:grid grid-cols-12 gap-4 p-4 border-b border-darkborder bg-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider sticky top-0 z-10">
-                    <div class="col-span-2">Situação</div><div class="col-span-2">Data</div><div class="col-span-3">Descrição & Origem</div>
-                    <div class="col-span-2">Categoria</div><div class="col-span-2 text-right">A Sua Parte</div><div class="col-span-1 text-right">Ações</div>
+                    <div class="col-span-2">Situação</div><div class="col-span-2">Data</div><div class="col-span-2">Descrição & Origem</div>
+                    <div class="col-span-2">Categoria</div><div class="col-span-1 text-center">Recorrência</div><div class="col-span-2 text-right">A Sua Parte</div><div class="col-span-1 text-right">Ações</div>
                 </div>
                 <div id="lista-lancamentos" class="overflow-y-auto flex-1 divide-y divide-darkborder bg-darkcard">
                     <div class="text-center p-8 text-slate-500"><i class="ph ph-spinner animate-spin text-2xl mb-2"></i><br>A carregar extrato...</div>
@@ -105,6 +105,27 @@ export function renderizarLancamentos() {
                     </div>
                 </form>
             </div>
+            
+            <div id="modal-recorrencia" class="fixed inset-0 bg-black/90 z-[135] flex items-center justify-center p-4 hidden animate-fade-in">
+                <div class="bg-darkcard w-full max-w-sm rounded-3xl p-6 border border-darkborder shadow-2xl flex flex-col text-center">
+                    <div class="w-16 h-16 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 border border-indigo-500/20"><i class="ph-fill ph-arrows-clockwise"></i></div>
+                    <h2 class="text-lg font-bold text-white mb-2">Lançamento Recorrente</h2>
+                    <p class="text-sm text-slate-400 mb-6">Como deseja aplicar esta alteração?</p>
+                    <div class="space-y-3">
+                        <button id="btn-rec-single" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-colors flex flex-col items-center">
+                            <span>Somente este</span><span class="text-[10px] text-slate-400 font-normal mt-0.5">As outras datas não serão afetadas.</span>
+                        </button>
+                        <button id="btn-rec-forward" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-colors flex flex-col items-center">
+                            <span>Este e os seguintes</span><span class="text-[10px] text-slate-400 font-normal mt-0.5">Os anteriores mantêm-se iguais.</span>
+                        </button>
+                        <button id="btn-rec-all" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition-colors flex flex-col items-center">
+                            <span>Todos</span><span class="text-[10px] text-indigo-200 font-normal mt-0.5">Altera todo o histórico.</span>
+                        </button>
+                    </div>
+                    <button id="btn-cancel-rec" class="mt-6 text-sm text-slate-500 hover:text-slate-300 font-bold">Cancelar</button>
+                </div>
+            </div>
+            
         </div>
     `;
 
@@ -165,7 +186,6 @@ export function renderizarLancamentos() {
                     if (txData.splitParticipants && txData.splitParticipants.length > 0) {
                         const updatedParticipants = txData.splitParticipants.map(p => {
                             if (p.email === user.email) {
-                                // Se eu não for o criador, eu ESTOU A DECLARAR PAGAMENTO (e não a efetivar de vez)
                                 if (p.email !== txData.creatorEmail && p.status !== 'paid' && p.status !== 'payment_declared') {
                                     guestIsPaying = true;
                                     meuValor = parseFloat(p.amount) || 0;
@@ -339,9 +359,40 @@ function projetarLancamentosDoMes(transacoes, dataRef, user) {
                 else dicionarioAlvo[tx.accountId].paidAmount += meuValorCalculado;
             }
         } else {
+            // A MAGIA DOS 12 MESES
             const txAbsolute = txAno * 12 + txMes;
-            if (txAbsolute < refAbsolute) return;
-            if (txAbsolute === refAbsolute) projetados.push({...tx, isProjection: false});
+            const diff = refAbsolute - txAbsolute;
+
+            let isProjection = false;
+            let currentInstallment = tx.currentInstallment;
+            let launchDateFinal = tx.launchDate;
+            let belongsToView = false;
+
+            if (diff === 0) {
+                belongsToView = true;
+            } else if (diff > 0 && diff <= 12) {
+                if (tx.recurrence === 'fixed') {
+                    belongsToView = true; isProjection = true; launchDateFinal = `${keyMesAtual}-${String(txDia).padStart(2,'0')}`;
+                } else if (tx.recurrence === 'installments') {
+                    const startInst = parseInt(tx.currentInstallment) || 1;
+                    const totalInst = parseInt(tx.installmentsTotal) || 1;
+                    if ((startInst + diff) <= totalInst) {
+                        belongsToView = true; isProjection = true; 
+                        launchDateFinal = `${keyMesAtual}-${String(txDia).padStart(2,'0')}`; 
+                        currentInstallment = startInst + diff;
+                    }
+                }
+            }
+
+            if (belongsToView) {
+                let txFinal = {...tx, isProjection, launchDate: launchDateFinal, currentInstallment};
+                if (isProjection) txFinal.status = 'pending';
+                if (tx.overrides && tx.overrides[keyMesAtual]) {
+                    if (tx.overrides[keyMesAtual].deleted) return;
+                    txFinal = { ...txFinal, ...tx.overrides[keyMesAtual] };
+                }
+                projetados.push(txFinal);
+            }
         }
     });
 
@@ -399,7 +450,6 @@ function processarDadosTabela(todasTransacoes) {
         const status = myPart ? myPart.status : (tx.status || 'pending');
         const isVencido = (!tx.isProjection && !tx.isVirtualInvoice && tx.launchDate < hojeRealStr && status !== 'paid' && status !== 'accepted' && status !== 'payment_declared');
 
-        // REGRA DE OURO: Esconder rateios apenas se forem 'pending' originais ou 'contested'. Aceite/Rejeitado/Pagamento Declarado mostra na tabela!
         if (!tx.isVirtualInvoice && !isCreator && (status === 'pending' || status === 'contested')) {
             return false;
         }
@@ -445,7 +495,15 @@ function processarDadosTabela(todasTransacoes) {
             const accNomeDisplay = tx.accountId ? (tx.accountName || 'Conta') : 'A Receber (Efetivar)';
             let metaHTML = `<span class="flex items-center gap-1"><i class="text-sm ${accColor}">${accIcon}</i> <span class="text-slate-400">${accNomeDisplay}</span></span>`;
 
-            let statusBadge = ''; let cardClass = ''; let tagsDescricao = ''; let acoesHTML = '';
+            let statusBadge = ''; let cardClass = ''; let tagsDescricao = ''; let acoesHTML = ''; let recTypeHtml = '';
+
+            if (tx.recurrence === 'fixed') {
+                recTypeHtml = `<span class="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20"><i class="ph-bold ph-arrows-clockwise mr-1"></i>Fixo</span>`;
+            } else if (tx.recurrence === 'installments') {
+                recTypeHtml = `<span class="text-[10px] font-bold text-slate-300 bg-slate-700 px-2 py-0.5 rounded border border-slate-600">${tx.currentInstallment}/${tx.installmentsTotal}</span>`;
+            } else {
+                recTypeHtml = `<span class="text-[10px] font-bold text-slate-500">-</span>`;
+            }
 
             if (tx.isVirtualInvoice) {
                 if (tx.isCurrentInvoice) {
@@ -461,6 +519,7 @@ function processarDadosTabela(todasTransacoes) {
                     cardClass = 'opacity-50 grayscale border-dashed';
                 }
                 acoesHTML = `<span class="text-[10px] text-slate-500 font-bold uppercase mr-4">Abrir Cartão p/ Detalhes</span>`;
+                recTypeHtml = ''; 
             } else {
                 if (status === 'paid') {
                     statusBadge = `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 flex items-center w-max"><i class="ph-fill ph-check-circle mr-1"></i> Efetivado</span>`;
@@ -469,14 +528,12 @@ function processarDadosTabela(todasTransacoes) {
                     statusBadge = `<span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-400 flex items-center w-max"><i class="ph-fill ph-hourglass mr-1"></i> Em Validação</span>`;
                     cardClass = 'opacity-80 border-solid border-indigo-500/30';
                 } else if (status === 'payment_rejected') {
-                    // BOTÃO PARA EFETIVAR (TENTAR DE NOVO)
                     statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 flex items-center w-max hover:bg-rose-500 hover:text-white transition-colors cursor-pointer border border-rose-500/30" data-id="${tx.id}"><i class="ph-fill ph-warning-circle mr-1"></i> Recusado (Tentar Novamente)</button>`;
                     cardClass = 'bg-rose-500/5 border-solid';
                 } else if (isVencido) {
-                    statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 flex items-center w-max hover:bg-rose-500 hover:text-white transition-colors cursor-pointer border border-rose-500/30" data-id="${tx.id}"><i class="ph-fill ph-warning-circle mr-1"></i> Vencido</button>`;
+                    statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 flex items-center w-max hover:bg-rose-500 hover:text-white transition-colors cursor-pointer border border-rose-500/30" data-id="${tx.id}"><i class="ph-fill ph-warning-circle mr-1"></i> Vencido (Efetivar)</button>`;
                     cardClass = 'bg-rose-500/5 hover:bg-rose-500/10 border-solid';
                 } else {
-                    // STATUS = ACCEPTED ou PENDING NORMAL (PRONTO A PAGAR)
                     statusBadge = `<button class="btn-quick-efetivar px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-500 flex items-center w-max hover:bg-amber-500 hover:text-white transition-colors cursor-pointer border border-amber-500/30" data-id="${tx.id}"><i class="ph-fill ph-clock mr-1"></i> Pendente (Efetivar)</button>`;
                     cardClass = 'border-solid';
                 }
@@ -500,22 +557,23 @@ function processarDadosTabela(todasTransacoes) {
                     <div class="text-[11px] md:text-sm text-slate-400 md:text-slate-300 mb-2 md:mb-0 md:col-span-2 pointer-events-none">
                         <span class="md:hidden font-bold uppercase mr-1">Data:</span>${tx.launchDate.split('-').reverse().join('/')}
                     </div>
-                    <div class="mb-3 md:mb-0 md:col-span-3 pointer-events-none">
+                    <div class="mb-3 md:mb-0 md:col-span-2 pointer-events-none">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:gap-2 mb-1.5">
                             <p class="text-sm font-bold ${tx.isVirtualInvoice && tx.isCurrentInvoice ? 'text-purple-400' : 'text-white'} leading-tight">${tx.description}</p>
                         </div>
                         <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">${metaHTML}</div>
                     </div>
-                    <div class="flex justify-between items-end md:contents pointer-events-none">
-                        <div class="md:col-span-2">
-                            <span class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold flex items-center w-max border" style="background-color: ${tx.categoryColor || '#64748b'}15; color: ${tx.categoryColor || '#64748b'}; border-color: ${tx.categoryColor || '#64748b'}30;">
-                                <span class="mr-1.5 text-[12px] leading-none">${tx.categoryIcon || '📌'}</span> ${tx.category || 'Outros'}
-                            </span>
-                        </div>
-                        <div class="text-right md:col-span-2 flex flex-col items-end">
-                            <p class="text-sm font-bold ${(tx.isVirtualInvoice && tx.isCurrentInvoice) ? 'text-purple-400' : (tx.isVirtualInvoice ? 'text-slate-500' : (isIncome ? 'text-emerald-500' : 'text-rose-500'))}">${isIncome?'+':'-'} R$ ${meuValor.toFixed(2)}</p>
-                            ${(tx.splitParticipants && tx.splitParticipants.length > 1 && !tx.isVirtualInvoice) ? `<p class="text-[10px] text-slate-500 font-medium mt-0.5">de R$ ${valorOriginal.toFixed(2)}</p>` : ''}
-                        </div>
+                    <div class="md:col-span-2 pointer-events-none">
+                        <span class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold flex items-center w-max border" style="background-color: ${tx.categoryColor || '#64748b'}15; color: ${tx.categoryColor || '#64748b'}; border-color: ${tx.categoryColor || '#64748b'}30;">
+                            <span class="mr-1.5 text-[12px] leading-none">${tx.categoryIcon || '📌'}</span> ${tx.category || 'Outros'}
+                        </span>
+                    </div>
+                    <div class="hidden md:flex justify-center md:col-span-1 pointer-events-none">
+                        ${recTypeHtml}
+                    </div>
+                    <div class="text-right md:col-span-2 flex flex-col items-end pointer-events-none">
+                        <p class="text-sm font-bold ${(tx.isVirtualInvoice && tx.isCurrentInvoice) ? 'text-purple-400' : (tx.isVirtualInvoice ? 'text-slate-500' : (isIncome ? 'text-emerald-500' : 'text-rose-500'))}">${isIncome?'+':'-'} R$ ${meuValor.toFixed(2)}</p>
+                        ${(tx.splitParticipants && tx.splitParticipants.length > 1 && !tx.isVirtualInvoice) ? `<p class="text-[10px] text-slate-500 font-medium mt-0.5">de R$ ${valorOriginal.toFixed(2)}</p>` : ''}
                     </div>
                     <div class="hidden md:flex justify-end items-center space-x-3 md:col-span-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                         ${acoesHTML}
@@ -564,7 +622,7 @@ function processarDadosTabela(todasTransacoes) {
             const txOriginal = todasTransacoes.find(t => t.id === id);
             
             document.getElementById('efetivar-id').value = id;
-            document.getElementById('efetivar-proj-date').value = ''; 
+            document.getElementById('efetivar-proj-date').value = txOriginal.isProjection ? txOriginal.launchDate : ''; 
             document.getElementById('efetivar-data').value = new Date().toISOString().split('T')[0];
             
             if (!txOriginal.accountId) {
@@ -588,7 +646,12 @@ function processarDadosTabela(todasTransacoes) {
             e.stopPropagation();
             const id = btnDel.dataset.id;
             const tx = todasTransacoes.find(t => t.id === id);
-            if (tx) await excluirTransacaoUniversal(tx);
+            if (!tx) return;
+            if (tx.recurrence === 'fixed' || tx.recurrence === 'installments') {
+                abrirModalEscolhaRecorrencia('apagar', tx, tx.isProjection ? tx.launchDate : null);
+            } else {
+                if (confirm('Tem a certeza que deseja excluir?')) deleteDoc(doc(db, 'transactions', tx.id));
+            }
             return;
         }
 
@@ -604,7 +667,12 @@ function processarDadosTabela(todasTransacoes) {
             e.stopPropagation();
             const id = btnEdit.dataset.id;
             const tx = todasTransacoes.find(t => t.id === id);
-            if (tx) abrirModalTransacao('editar', tx);
+            if (!tx) return;
+            if (tx.recurrence === 'fixed' || tx.recurrence === 'installments') {
+                 abrirModalEscolhaRecorrencia('editar', tx, tx.isProjection ? tx.launchDate : null);
+            } else {
+                 abrirModalTransacao('editar', tx);
+            }
             return;
         }
 
@@ -645,4 +713,98 @@ function processarDadosTabela(todasTransacoes) {
             </div>
         </div>
     `;
+}
+
+export function limparListenerLancamentosGlobal() {} 
+
+export function abrirModalEscolhaRecorrencia(acao, txOriginal, projDate = null) {
+    const modal = document.getElementById('modal-recorrencia'); 
+    modal.classList.remove('hidden');
+    
+    const btnSingle = document.getElementById('btn-rec-single'); 
+    const btnForward = document.getElementById('btn-rec-forward'); 
+    const btnAll = document.getElementById('btn-rec-all');
+    
+    const novoBtnSingle = btnSingle.cloneNode(true); btnSingle.replaceWith(novoBtnSingle);
+    const novoBtnForward = btnForward.cloneNode(true); btnForward.replaceWith(novoBtnForward);
+    const novoBtnAll = btnAll.cloneNode(true); btnAll.replaceWith(novoBtnAll);
+    
+    document.getElementById('btn-cancel-rec').onclick = () => modal.classList.add('hidden');
+
+    const keyMes = projDate ? projDate.substring(0, 7) : txOriginal.launchDate.substring(0, 7);
+
+    novoBtnSingle.addEventListener('click', async () => {
+        modal.classList.add('hidden');
+        if (acao === 'apagar') {
+            const overrides = txOriginal.overrides || {}; overrides[keyMes] = { deleted: true };
+            await updateDoc(doc(db, 'transactions', txOriginal.id), { overrides });
+        } else if (acao === 'salvar') {
+            // Nova Lógica para interceptar o Salvar
+            salvarEdicaoExcecaoRecorrente(txOriginal, keyMes);
+        } else {
+            abrirModalTransacao('editar', { ...txOriginal, launchDate: projDate || txOriginal.launchDate, isOverrideMode: true, overrideKey: keyMes });
+        }
+    });
+
+    novoBtnForward.addEventListener('click', async () => {
+        modal.classList.add('hidden');
+        const dataAnterior = new Date(`${keyMes}-01T12:00:00`); dataAnterior.setMonth(dataAnterior.getMonth() - 1);
+        const endKey = `${dataAnterior.getFullYear()}-${String(dataAnterior.getMonth() + 1).padStart(2, '0')}`;
+        
+        if (acao === 'apagar') {
+            await updateDoc(doc(db, 'transactions', txOriginal.id), { endDate: endKey });
+        } else if (acao === 'salvar') {
+            await updateDoc(doc(db, 'transactions', txOriginal.id), { endDate: endKey });
+            salvarEdicaoNovaRecorrenciaRaiz(txOriginal, projDate);
+        } else { 
+            await updateDoc(doc(db, 'transactions', txOriginal.id), { endDate: endKey }); 
+            abrirModalTransacao('criar', { ...txOriginal, id: null, launchDate: projDate || txOriginal.launchDate }); 
+        }
+    });
+
+    novoBtnAll.addEventListener('click', async () => {
+        modal.classList.add('hidden');
+        if (acao === 'apagar') {
+            if (confirm('Atenção! Vai apagar todos os itens recorrentes, inclusive do passado. Continuar?')) {
+                await deleteDoc(doc(db, 'transactions', txOriginal.id));
+            }
+        } else if (acao === 'salvar') {
+            salvarEdicaoNovaRecorrenciaRaiz(txOriginal, null); // Atualiza o original
+        } else {
+            abrirModalTransacao('editar', txOriginal); 
+        }
+    });
+}
+
+// Funções Auxiliares Injetadas (Para processar o Salvar condicional do Modal)
+async function salvarEdicaoExcecaoRecorrente(txOriginal, overrideKey) {
+    const payloadNovo = window.txStatePayloadEmMemoria; // Puxa o estado atual do Modal (definido em transactionModal.js)
+    if (!payloadNovo) return;
+    try {
+        const overrides = txOriginal.overrides || {};
+        overrides[overrideKey] = {
+            ...overrides[overrideKey], description: payloadNovo.description, amount: payloadNovo.amount,
+            category: payloadNovo.category, categoryIcon: payloadNovo.categoryIcon, categoryColor: payloadNovo.categoryColor,
+            accountId: payloadNovo.accountId, accountType: payloadNovo.accountType, accountName: payloadNovo.accountName,
+            splitParticipants: payloadNovo.splitParticipants
+        };
+        await updateDoc(doc(db, 'transactions', txOriginal.id), { overrides });
+        document.getElementById('modal-overlay').classList.add('hidden');
+    } catch(e) { alert("Erro ao salvar exceção."); console.error(e); }
+}
+
+async function salvarEdicaoNovaRecorrenciaRaiz(txOriginal, projDate) {
+    const payloadNovo = window.txStatePayloadEmMemoria;
+    if (!payloadNovo) return;
+    try {
+        if (projDate) {
+            // Era 'forward', então cria um NOVO documento com as novas regras a partir de agora
+            payloadNovo.launchDate = projDate;
+            await addDoc(collection(db, 'transactions'), payloadNovo);
+        } else {
+            // Era 'All', atualiza o documento original base
+            await updateDoc(doc(db, 'transactions', txOriginal.id), payloadNovo);
+        }
+        document.getElementById('modal-overlay').classList.add('hidden');
+    } catch(e) { alert("Erro ao atualizar histórico."); console.error(e); }
 }

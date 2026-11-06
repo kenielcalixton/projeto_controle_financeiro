@@ -253,8 +253,36 @@ function processarDadosConta(todasTransacoes, conta, user) {
             }
         } else {
             const txAbsolute = txAno * 12 + txMes;
-            if (txAbsolute < refAbsolute) return;
-            if (txAbsolute === refAbsolute) transacoesDoMes.push({...tx, isProjection: false});
+            const diff = refAbsolute - txAbsolute;
+            
+            let belongsToView = false;
+            let currentInstallment = tx.currentInstallment;
+
+            if (diff === 0) {
+                belongsToView = true;
+            } else if (diff > 0 && diff <= 12) {
+                if (tx.recurrence === 'fixed') {
+                    belongsToView = true; isProjection = true; launchDateFinal = `${keyMesAtual}-${String(txDia).padStart(2,'0')}`;
+                } else if (tx.recurrence === 'installments') {
+                    const startInst = parseInt(tx.currentInstallment) || 1;
+                    const totalInst = parseInt(tx.installmentsTotal) || 1;
+                    if ((startInst + diff) <= totalInst) {
+                        belongsToView = true; isProjection = true; 
+                        launchDateFinal = `${keyMesAtual}-${String(txDia).padStart(2,'0')}`; 
+                        currentInstallment = startInst + diff;
+                    }
+                }
+            }
+
+            if (belongsToView) {
+                let txFinal = {...tx, isProjection, launchDate: launchDateFinal, currentInstallment};
+                if (isProjection) txFinal.status = 'pending';
+                if (tx.overrides && tx.overrides[keyMesAtual]) {
+                    if (tx.overrides[keyMesAtual].deleted) return;
+                    txFinal = { ...txFinal, ...tx.overrides[keyMesAtual] };
+                }
+                transacoesDoMes.push(txFinal);
+            }
         }
     });
 
@@ -302,6 +330,13 @@ function processarDadosConta(todasTransacoes, conta, user) {
                 statusHtml = `<span class="text-amber-500 font-bold text-[10px]"><i class="ph-fill ph-clock"></i> Pendente</span>`;
             }
             
+            let recTypeHtml = '';
+            if (tx.recurrence === 'fixed') {
+                recTypeHtml = `<span class="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1 py-0.5 rounded ml-2 border border-indigo-500/20"><i class="ph-bold ph-arrows-clockwise"></i></span>`;
+            } else if (tx.recurrence === 'installments') {
+                recTypeHtml = `<span class="text-[10px] font-bold text-slate-300 bg-slate-700 px-1 py-0.5 rounded ml-2 border border-slate-600">${tx.currentInstallment}/${tx.installmentsTotal}</span>`;
+            }
+
             const catIcon = tx.categoryIcon || '📌';
             const catColor = tx.categoryColor || '#64748b';
             const isSaldoAnt = tx.id === 'saldo_anterior';
@@ -323,7 +358,7 @@ function processarDadosConta(todasTransacoes, conta, user) {
                     <div class="flex items-center gap-3 overflow-hidden pointer-events-none">
                         <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 border" style="background-color: ${catColor}15; color: ${catColor}; border-color: ${catColor}30;">${catIcon}</div>
                         <div class="truncate">
-                            <p class="text-sm font-bold ${isSaldoAnt ? 'text-amber-500' : 'text-white'} truncate leading-tight">${tx.description}</p>
+                            <p class="text-sm font-bold ${isSaldoAnt ? 'text-amber-500' : 'text-white'} truncate leading-tight flex items-center">${tx.description}${recTypeHtml}</p>
                             <p class="text-[10px] text-slate-400 font-bold mt-0.5">${tx.launchDate.split('-').reverse().join('/')}</p>
                         </div>
                     </div>
@@ -428,6 +463,7 @@ function processarDadosConta(todasTransacoes, conta, user) {
             
             const contasValidas = snapContas.docs.map(d => ({id: d.id, ...d.data()})).filter(c => c.type !== 'credit');
             if (contasValidas.length === 0) return alert("Precisa de uma Conta Corrente para pagar a fatura!");
+            
             contasValidas.forEach(c => selectAcc.innerHTML += `<option value="${c.id}">🏦 ${c.name}</option>`);
 
             document.getElementById('fatura-interno-valor-texto').innerText = `R$ ${totalPendenteGlobal.toFixed(2)}`;

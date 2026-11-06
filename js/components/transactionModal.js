@@ -2,6 +2,7 @@
 import { auth, db } from '../config/firebase.js';
 import { processarNotificacaoEmail } from '../services/emailService.js';
 import { collection, addDoc, updateDoc, doc, deleteDoc, getDocs, query, where, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { abrirModalEscolhaRecorrencia } from './transactions.js';
 
 let isModalInjected = false;
 let modoAtual = 'criar';
@@ -74,7 +75,13 @@ export function abrirDetalheTransacao(tx) {
     document.getElementById('dt-amount').className = `text-4xl font-bold mt-2 ${isIncome ? 'text-emerald-500' : 'text-rose-500'}`;
     
     const myStatus = myPart ? myPart.status : (tx.status || 'pending');
-    document.getElementById('dt-status').innerHTML = (myStatus === 'paid' || myStatus === 'accepted') ? `<span class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400"><i class="ph-fill ph-check-circle"></i> Efetivado</span>` : `<span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-500"><i class="ph-fill ph-clock"></i> Pendente</span>`;
+    
+    let statusHTML = '';
+    if (myStatus === 'paid') statusHTML = `<span class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400"><i class="ph-fill ph-check-circle"></i> Efetivado</span>`;
+    else if (myStatus === 'payment_declared') statusHTML = `<span class="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-400"><i class="ph-fill ph-hourglass"></i> Em Validação</span>`;
+    else if (myStatus === 'payment_rejected') statusHTML = `<span class="px-3 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400"><i class="ph-fill ph-warning-circle"></i> Pagamento Recusado</span>`;
+    else statusHTML = `<span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-500"><i class="ph-fill ph-clock"></i> Pendente</span>`;
+    document.getElementById('dt-status').innerHTML = statusHTML;
 
     document.getElementById('dt-date').innerText = tx.launchDate.split('-').reverse().join('/');
     
@@ -89,10 +96,15 @@ export function abrirDetalheTransacao(tx) {
     let extras = '';
     
     if (tx.splitParticipants && tx.splitParticipants.length > 1 && !tx.isVirtualInvoice) {
-        extras += `<div class="flex justify-between items-center border-b border-slate-700/50 pb-3 mt-4"><span class="text-xs font-bold text-slate-400 uppercase">Valor Total Original</span><span class="text-sm font-bold text-slate-300">R$ ${parseFloat(tx.amount).toFixed(2)}</span></div>`;
+        extras += `<div class="flex justify-between items-center border-b border-slate-700/50 pb-3 mt-4"><span class="text-xs font-bold text-slate-400 uppercase">Valor Total (Mês)</span><span class="text-sm font-bold text-slate-300">R$ ${parseFloat(tx.amount).toFixed(2)}</span></div>`;
+        if (tx.recurrence === 'installments' && tx.totalAmount) {
+            extras += `<div class="flex justify-between items-center border-b border-slate-700/50 pb-3 mt-4"><span class="text-xs font-bold text-slate-400 uppercase">Total da Compra</span><span class="text-sm font-bold text-slate-300">R$ ${parseFloat(tx.totalAmount).toFixed(2)}</span></div>`;
+        }
         if (!isCreator) {
             extras += `<div class="flex justify-between items-center border-b border-slate-700/50 pb-3 mt-4"><span class="text-xs font-bold text-slate-400 uppercase">Criado por</span><span class="text-sm font-bold text-indigo-400 flex items-center gap-1.5"><i class="ph-fill ph-user-circle"></i> ${tx.creatorEmail.split('@')[0]}</span></div>`;
         }
+    } else if (tx.recurrence === 'installments' && tx.totalAmount) {
+        extras += `<div class="flex justify-between items-center border-b border-slate-700/50 pb-3 mt-4"><span class="text-xs font-bold text-slate-400 uppercase">Total da Compra</span><span class="text-sm font-bold text-slate-300">R$ ${parseFloat(tx.totalAmount).toFixed(2)}</span></div>`;
     }
 
     if (tx.recurrence === 'installments') extras += `<div class="flex justify-between items-center text-sm font-bold text-slate-300 border-b border-slate-700/50 pb-3 mt-4"><span class="text-slate-400 uppercase text-xs">Parcela</span> ${tx.currentInstallment} de ${tx.installmentsTotal}</div>`;
@@ -110,12 +122,23 @@ export function abrirDetalheTransacao(tx) {
         newBtnEdit.classList.remove('hidden');
         newBtnDel.innerHTML = '<i class="ph ph-trash text-lg"></i> Apagar Total';
         newBtnDel.addEventListener('click', async () => {
-            const deleted = await excluirTransacaoUniversal(tx);
-            if(deleted) fecharDetalheTransacao();
+            if (tx.recurrence === 'fixed' || tx.recurrence === 'installments') {
+                fecharDetalheTransacao();
+                abrirModalEscolhaRecorrencia('apagar', tx, tx.isProjection ? tx.launchDate : null);
+            } else {
+                const deleted = await excluirTransacaoUniversal(tx);
+                if(deleted) fecharDetalheTransacao();
+            }
         });
         newBtnEdit.addEventListener('click', () => {
             fecharDetalheTransacao();
-            setTimeout(() => abrirModalTransacao('editar', tx), 300);
+            setTimeout(() => {
+                if (tx.recurrence === 'fixed' || tx.recurrence === 'installments') {
+                    abrirModalEscolhaRecorrencia('editar', tx, tx.isProjection ? tx.launchDate : null);
+                } else {
+                    abrirModalTransacao('editar', tx);
+                }
+            }, 300);
         });
     } else {
         newBtnEdit.classList.add('hidden'); 
@@ -157,7 +180,6 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
         participants: [{ id: 'me', name: 'Sua Parte', email: user.email, amount: 0 }]
     };
     
-    // FORÇA O BLOQUEIO VISUAL IMEDIATO DO VENCIMENTO ANTES DO CARREGAMENTO
     atualizarToggleOrigemUI();
     atualizarUI();
 
@@ -169,7 +191,7 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
         const snapContas = await getDocs(qContas);
         window.todasContasCarregadas = snapContas.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        atualizarToggleOrigemUI(); // Re-aplica após carregar os dados reais
+        atualizarToggleOrigemUI(); 
 
         const qEspacos = query(collection(db, 'spaces'), where('participantEmails', 'array-contains', user.email));
         const snapEspacos = await getDocs(qEspacos);
@@ -184,7 +206,7 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
         await carregarCategorias(dados ? dados.category : null);
 
         if (modo === 'editar' && dados) {
-            document.getElementById('modal-tx-title').innerText = dados.isOverrideMode ? 'Editar Exceção (Este Mês)' : 'Editar Lançamento';
+            document.getElementById('modal-tx-title').innerText = dados.isOverrideMode ? 'Editar Exceção (Este Mês)' : 'Editar Lançamento (Série Original)';
             
             if (dados.type === 'income') { window.txState.type = 'income'; } 
             else { window.txState.type = 'expense'; }
@@ -197,7 +219,13 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
             atualizarUI();
             
             document.getElementById('input-desc').value = dados.description || '';
-            document.getElementById('input-amount').value = dados.amount || '';
+            
+            let displayAmount = dados.amount || 0;
+            if (dados.recurrence === 'installments' && dados.installmentsTotal) {
+                displayAmount = (dados.totalAmount || (dados.amount * dados.installmentsTotal));
+            }
+            document.getElementById('input-amount').value = displayAmount.toFixed(2);
+            
             document.getElementById('input-date').value = dados.launchDate || '';
             
             if (dados.accountId) { 
@@ -206,12 +234,19 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
             
             window.txState.splitMode = dados.splitType || 'ind';
             if (dados.splitParticipants && dados.splitParticipants.length > 0) {
-                window.txState.participants = dados.splitParticipants.map(p => ({
-                    id: p.email === user.email ? 'me' : (p.id || Math.random().toString(36).substr(2, 5)),
-                    name: p.email === user.email ? 'Sua Parte' : (p.name || p.email),
-                    email: p.email,
-                    amount: p.amount || 0
-                }));
+                window.txState.participants = dados.splitParticipants.map(p => {
+                    let pAmount = p.amount || 0;
+                    if (dados.recurrence === 'installments' && dados.installmentsTotal) {
+                        pAmount = pAmount * dados.installmentsTotal;
+                    }
+                    return {
+                        id: p.email === user.email ? 'me' : (p.id || Math.random().toString(36).substr(2, 5)),
+                        name: p.email === user.email ? 'Sua Parte' : (p.name || p.email),
+                        email: p.email,
+                        amount: pAmount,
+                        status: p.status || 'pending'
+                    };
+                });
             }
 
             ['ind', 'space', 'avulso'].forEach(m => {
@@ -243,7 +278,6 @@ export async function abrirModalTransacao(modo = 'criar', dados = null) {
     document.getElementById('modal-overlay').classList.remove('hidden');
 }
 
-// CORREÇÃO CIRÚRGICA DO VENCIMENTO: Totalmente desvinculado do HTML event
 function atualizarToggleOrigemUI() {
     const btnWallet = document.getElementById('btn-orig-wallet'); 
     const btnCredit = document.getElementById('btn-orig-credit'); 
@@ -254,15 +288,11 @@ function atualizarToggleOrigemUI() {
     if (isCredit) {
         btnCredit.className = 'flex-1 py-2 text-sm font-bold rounded-lg bg-slate-700 text-purple-400 shadow transition-all flex items-center justify-center gap-2';
         btnWallet.className = 'flex-1 py-2 text-sm font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all flex items-center justify-center gap-2';
-        
-        // ESCONDE O VENCIMENTO DE FORMA INQUEBRÁVEL
         document.getElementById('box-due-date').classList.add('hidden');
         document.getElementById('box-credit-info').classList.remove('hidden');
     } else {
         btnWallet.className = 'flex-1 py-2 text-sm font-bold rounded-lg bg-slate-700 text-indigo-400 shadow transition-all flex items-center justify-center gap-2';
         btnCredit.className = 'flex-1 py-2 text-sm font-bold rounded-lg text-slate-500 hover:bg-slate-800 transition-all flex items-center justify-center gap-2';
-        
-        // MOSTRA O VENCIMENTO DE FORMA INQUEBRÁVEL
         document.getElementById('box-due-date').classList.remove('hidden');
         document.getElementById('box-credit-info').classList.add('hidden');
     }
@@ -341,7 +371,7 @@ function injetarHTMLDoModal() {
                     </div>
                     
                     <div class="md:col-span-5">
-                        <label class="block text-xs font-bold text-slate-400 mb-1">Valor Total (R$)</label>
+                        <label id="label-amount-tx" class="block text-xs font-bold text-slate-400 mb-1">Valor do Lançamento (R$)</label>
                         <input type="number" id="input-amount" step="0.01" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-xl font-bold text-white focus:outline-none focus:border-indigo-500" placeholder="0,00" />
                     </div>
 
@@ -392,14 +422,17 @@ function injetarHTMLDoModal() {
                             <label class="block text-xs font-bold text-slate-400 mb-1">Data da Movimentação</label>
                             <input type="date" id="input-date" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
                         </div>
-                        <div id="box-due-date">
+                        
+                        <div id="box-due-date" class="hidden">
                             <label class="block text-xs font-bold text-slate-400 mb-1">Data de Vencimento</label>
                             <input type="date" id="input-due" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
                         </div>
+                        
                         <div id="box-credit-info" class="hidden flex items-center text-sm text-purple-300 bg-purple-900/30 p-3 rounded-lg border border-purple-500/30 h-full">
                             <i class="ph-fill ph-magic-wand text-2xl mr-3 text-purple-400"></i> 
                             <div><p class="font-bold text-purple-400">Lançamento em Cartão</p><p class="text-[10px] opacity-80">Será agrupado na fatura.</p></div>
                         </div>
+
                     </div>
                 </div>
 
@@ -530,21 +563,56 @@ function configurarEventosBase() {
 
             const participantEmails = window.txState.participants.map(p => p.email).filter(Boolean);
             const catSelecionada = window.categoriasCarregadas.find(c => c.nome === catNome);
+            
+            const totalAmountInput = parseFloat(document.getElementById('input-amount').value);
+            const installmentsTotal = parseInt(document.getElementById('total-inst').value) || null;
+            let amountToSave = totalAmountInput;
+
+            if (window.txState.recurrence === 'installments' && installmentsTotal > 0) {
+                amountToSave = totalAmountInput / installmentsTotal;
+            }
+
+            const splitParticipantsFinal = window.txState.participants.map(p => {
+                let finalAmount = p.amount;
+                if (window.txState.recurrence === 'installments' && installmentsTotal > 0) {
+                    finalAmount = finalAmount / installmentsTotal;
+                }
+                
+                let statusToSave = 'pending';
+                if (modoAtual === 'editar' && txEditDadosAntigos && txEditDadosAntigos.splitParticipants) {
+                    const oldP = txEditDadosAntigos.splitParticipants.find(old => old.email === p.email);
+                    if (oldP) statusToSave = oldP.status;
+                    else if (p.email === user.email) statusToSave = 'accepted';
+                } else {
+                    if (p.email === user.email) statusToSave = 'accepted';
+                }
+
+                return {
+                    id: p.id,
+                    email: p.email,
+                    name: p.name,
+                    amount: finalAmount,
+                    status: statusToSave
+                };
+            });
 
             const txData = {
                 creatorId: user.uid, creatorEmail: user.email, type: window.txState.type,
                 description: document.getElementById('input-desc').value,
-                amount: parseFloat(document.getElementById('input-amount').value),
+                amount: amountToSave, 
+                totalAmount: totalAmountInput, 
                 category: catNome, categoryIcon: catSelecionada ? catSelecionada.icon : '📌', categoryColor: catSelecionada ? catSelecionada.color : '#64748b',
                 accountId: accSelect.value, accountType: accType, accountName: accName,
                 launchDate: document.getElementById('input-date').value,
                 dueDate: isCredit ? '' : document.getElementById('input-due').value,
                 recurrence: window.txState.recurrence,
-                installmentsTotal: document.getElementById('total-inst').value || null,
+                installmentsTotal: installmentsTotal,
                 currentInstallment: document.getElementById('current-inst').value || null,
                 splitType: window.txState.splitMode, spaceId: window.txState.splitMode === 'space' ? document.getElementById('space-selector').value : null,
-                splitParticipants: window.txState.participants, participantEmails: participantEmails
+                splitParticipants: splitParticipantsFinal, participantEmails: participantEmails
             };
+
+            window.txStatePayloadEmMemoria = txData;
 
             if (modoAtual === 'criar') {
                 txData.status = 'pending'; txData.createdAt = new Date().toISOString();
@@ -552,22 +620,17 @@ function configurarEventosBase() {
                 if (txData.splitParticipants && txData.splitParticipants.length > 1) {
                     txData.splitParticipants.forEach(participante => { if (participante.email !== user.email) { processarNotificacaoEmail(participante.email, user.email, 'rateio', { descricao: txData.description, valor: participante.amount }); } });
                 }
+                document.getElementById('modal-overlay').classList.add('hidden');
             } else if (modoAtual === 'editar' && txEditId) {
-                if (txEditDadosAntigos.isOverrideMode) {
-                    const overrideKey = txEditDadosAntigos.overrideKey; 
-                    const overrides = txEditDadosAntigos.overrides || {};
-                    overrides[overrideKey] = {
-                        ...overrides[overrideKey], description: txData.description, amount: txData.amount,
-                        category: txData.category, categoryIcon: txData.categoryIcon, categoryColor: txData.categoryColor,
-                        accountId: txData.accountId, accountType: txData.accountType, accountName: txData.accountName
-                    };
-                    await updateDoc(doc(db, 'transactions', txEditId), { overrides });
+                if (txEditDadosAntigos.recurrence === 'fixed' || txEditDadosAntigos.recurrence === 'installments') {
+                    document.getElementById('modal-overlay').classList.add('hidden');
+                    abrirModalEscolhaRecorrencia('salvar', txEditDadosAntigos, txEditDadosAntigos.isProjection ? txEditDadosAntigos.launchDate : null);
                 } else {
                     txData.createdAt = txEditDadosAntigos.createdAt; txData.status = txEditDadosAntigos.status;
                     await updateDoc(doc(db, 'transactions', txEditId), txData);
+                    document.getElementById('modal-overlay').classList.add('hidden');
                 }
             }
-            document.getElementById('modal-overlay').classList.add('hidden');
         } catch (error) {
             console.error(error); alert('Erro ao salvar o lançamento.');
         } finally {
@@ -578,6 +641,14 @@ function configurarEventosBase() {
 
 function atualizarUI() {
     const s = window.txState;
+    
+    const labelAmount = document.getElementById('label-amount-tx');
+    if (s.recurrence === 'installments') {
+        if (labelAmount) labelAmount.innerText = 'Valor Total da Compra (R$)';
+    } else {
+        if (labelAmount) labelAmount.innerText = 'Valor do Lançamento (R$)';
+    }
+
     document.getElementById('btn-type-expense').className = `flex-1 py-2 text-sm font-bold rounded-lg transition-all ${s.type==='expense' ? 'bg-slate-700 text-rose-500 shadow' : 'text-slate-500 hover:bg-slate-800'}`;
     document.getElementById('btn-type-income').className = `flex-1 py-2 text-sm font-bold rounded-lg transition-all ${s.type==='income' ? 'bg-slate-700 text-emerald-500 shadow' : 'text-slate-500 hover:bg-slate-800'}`;
     document.getElementById('btn-rec-none').className = `flex-1 py-1 text-xs font-bold rounded-lg transition-all ${s.recurrence==='none' ? 'bg-slate-700 text-indigo-400 shadow' : 'text-slate-500 hover:bg-slate-800'}`;
